@@ -26,12 +26,40 @@ const selectedModifiers = computed(() =>
 )
 
 function modifierLabel(option) {
-  if (option.label === 'Meta' && props.isMacLike) {
+  if (option.label === 'Meta') {
+    return 'command'
+  }
+
+  if (option.label === 'Alt') {
+    return 'option'
+  }
+
+  if (option.label === 'Ctrl') {
+    return 'control'
+  }
+
+  if (option.label === 'Shift') {
+    return 'shift'
+  }
+
+  return option.label.toLowerCase()
+}
+
+function modifierSymbol(option) {
+  if (option.label === 'Meta') {
     return '⌘'
   }
 
-  if (option.label === 'Meta') {
-    return 'Мета'
+  if (option.label === 'Alt') {
+    return '⌥'
+  }
+
+  if (option.label === 'Ctrl') {
+    return '⌃'
+  }
+
+  if (option.label === 'Shift') {
+    return '⇧'
   }
 
   return option.label
@@ -51,7 +79,8 @@ function updateModifiers(optionValue, checked) {
 }
 
 function updateKey(value) {
-  const nextValue = value.slice(0, 1)
+  console.log(value);
+  const nextValue = value.slice(-1)
   const code = hotkeyCodeFromChar(nextValue)
 
   if (nextValue && code === 0) {
@@ -76,13 +105,16 @@ function updateKey(value) {
             type="checkbox"
             @change="updateModifiers(option.value, $event.target.checked)"
           />
-          <span class="modifier-key" :data-key="option.label.toLowerCase()">{{ modifierLabel(option) }}</span>
+          <span class="modifier-key" :data-key="option.label.toLowerCase()">
+            <span class="modifier-symbol">{{ modifierSymbol(option) }}</span>
+            <span class="modifier-label">{{ modifierLabel(option) }}</span>
+          </span>
         </label>
       </div>
       <input
         :value="hotkeyCharFromCode(gesture.code)"
         class="hotkey-char-input"
-        maxlength="1"
+        maxlength="2"
         type="text"
         @input="updateKey($event.target.value)"
       />

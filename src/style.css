@@ -239,11 +239,12 @@ h2 {
 .modifier-key {
   display: flex;
   flex: 1 1 auto;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   justify-content: center;
-  min-width: 56px;
-  min-height: 44px;
-  padding: 0 12px;
+  min-width: 68px;
+  min-height: 52px;
+  padding: 4px 10px 6px;
   white-space: nowrap;
   background: #ffffff;
   color: #111111;
@@ -255,17 +256,29 @@ h2 {
   border-left-width: 2px;
 
   &[data-key="shift"] {
-    padding-right: 60px;
+    min-width: 82px;
   }
   &[data-key="alt"],
   &[data-key="ctrl"] {
-    padding-right: 20px;
+    min-width: 76px;
   }
 
   &[data-key="meta"] {
-    width: 48px;
-    min-width: 48px;
+    min-width: 86px;
   }
+}
+
+.modifier-symbol {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.modifier-label {
+  font-size: 0.8rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  margin-top: 4px;
 }
 
 .modifier-option input:checked + .modifier-key {
