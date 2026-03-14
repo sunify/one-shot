@@ -1,6 +1,12 @@
 node_modules/
 dist/
 .vite/
+.arduino/build/
+*.hex
+*.bin
+*.elf
+*.eep
+*.map
 
 coverage/
 *.log

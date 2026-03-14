@@ -17,7 +17,7 @@ const reader = ref(null)
 const writer = ref(null)
 const isConnected = ref(false)
 const isBusy = ref(false)
-const statusText = ref('Устройство не подключено')
+const statusText = ref()
 const receiveBuffer = ref(new Uint8Array())
 const pendingResolver = ref(null)
 
@@ -211,7 +211,7 @@ async function saveConfig() {
       throw new Error(`Не удалось сохранить конфигурацию: ${frame.payload[0]}`)
     }
 
-    statusText.value = 'Конфигурация записана в EEPROM'
+    statusText.value = 'Сохранено'
   })
 }
 
@@ -239,93 +239,80 @@ onBeforeUnmount(() => {
 <template>
   <main class="shell">
     <section class="hero">
-      <p class="eyebrow">One Shot</p>
-      <h1>Serial-конфигуратор для однокнопочной клавиатуры</h1>
-      <p class="lede">
-        Настраивает три жеста и цвет двух светодиодов на Arduino Pro Micro через бинарный протокол.
-      </p>
+      <h1>Конфигуратор для OneShot</h1>
 
-      <div class="actions">
+      <div v-if="!isConnected" class="actions">
         <button class="primary" :disabled="isBusy" @click="connect">
-          {{ isConnected ? 'Переподключить' : 'Подключить устройство' }}
-        </button>
-        <button class="ghost" :disabled="!isConnected || isBusy" @click="refreshConfig">
-          Считать конфиг
-        </button>
-        <button class="ghost" :disabled="!isConnected || isBusy" @click="disconnect">
-          Отключить
+          Подключить устройство
         </button>
       </div>
 
       <p class="status">{{ statusText }}</p>
     </section>
 
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Жесты</p>
-          <h2>HID Consumer keycodes</h2>
+    <template v-if="isConnected">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Жесты</p>
+          </div>
         </div>
-        <div class="chip">115200 baud</div>
-      </div>
 
-      <div class="grid">
-        <label class="field">
-          <span>Одиночное нажатие</span>
-          <select :value="form.singleTapCode" @change="updateCode('singleTapCode', $event.target.value)">
-            <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }} · {{ toHexCode(option.value) }}
-            </option>
-          </select>
-          <input v-model.number="form.singleTapCode" min="0" max="65535" type="number" />
-        </label>
+        <div class="grid">
+          <label class="field">
+            <span>Нажатие</span>
+            <select :value="form.singleTapCode" @change="updateCode('singleTapCode', $event.target.value)">
+              <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }} · {{ toHexCode(option.value) }}
+              </option>
+            </select>
+          </label>
 
-        <label class="field">
-          <span>Двойное нажатие</span>
-          <select :value="form.doubleTapCode" @change="updateCode('doubleTapCode', $event.target.value)">
-            <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }} · {{ toHexCode(option.value) }}
-            </option>
-          </select>
-          <input v-model.number="form.doubleTapCode" min="0" max="65535" type="number" />
-        </label>
+          <label class="field">
+            <span>Двойное нажатие</span>
+            <select :value="form.doubleTapCode" @change="updateCode('doubleTapCode', $event.target.value)">
+              <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }} · {{ toHexCode(option.value) }}
+              </option>
+            </select>
+          </label>
 
-        <label class="field">
-          <span>Тройное нажатие</span>
-          <select :value="form.tripleTapCode" @change="updateCode('tripleTapCode', $event.target.value)">
-            <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }} · {{ toHexCode(option.value) }}
-            </option>
-          </select>
-          <input v-model.number="form.tripleTapCode" min="0" max="65535" type="number" />
-        </label>
-      </div>
-    </section>
-
-    <section class="panel accent-panel" :style="colorPreviewStyle">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Подсветка</p>
-          <h2>RGB цвет базы</h2>
+          <label class="field">
+            <span>Тройное нажатие</span>
+            <select :value="form.tripleTapCode" @change="updateCode('tripleTapCode', $event.target.value)">
+              <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }} · {{ toHexCode(option.value) }}
+              </option>
+            </select>
+          </label>
         </div>
-        <div class="swatch"></div>
-      </div>
+      </section>
 
-      <div class="color-layout">
-        <label class="field">
-          <span>Цвет</span>
-          <input v-model="selectedColor" type="color" />
-        </label>
-      </div>
-    </section>
+      <section class="panel accent-panel" :style="colorPreviewStyle">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Подсветка</p>
+            <h2>RGB цвет базы</h2>
+          </div>
+          <div class="swatch"></div>
+        </div>
 
-    <section class="footer-actions">
-      <button class="primary" :disabled="!isConnected || isBusy" @click="saveConfig">
-        Сохранить в устройство
-      </button>
-      <button class="ghost" :disabled="!isConnected || isBusy" @click="resetConfig">
-        Сбросить по умолчанию
-      </button>
-    </section>
+        <div class="color-layout">
+          <label class="field">
+            <span>Цвет</span>
+            <input v-model="selectedColor" type="color" />
+          </label>
+        </div>
+      </section>
+
+      <section class="footer-actions">
+        <button class="primary" :disabled="isBusy" @click="saveConfig">
+          Сохранить в устройство
+        </button>
+        <button class="ghost" :disabled="isBusy" @click="resetConfig">
+          Сбросить по умолчанию
+        </button>
+      </section>
+    </template>
   </main>
 </template>

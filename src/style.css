@@ -137,6 +137,7 @@ h2 {
 
 .status {
   color: rgba(245, 241, 232, 0.78);
+  margin-top: 12px;
 }
 
 .panel-head {

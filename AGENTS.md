@@ -16,3 +16,10 @@
 ## Persistence
 - On Arduino Pro Micro, persistent config is stored in EEPROM via `EEPROM.get/put`.
 - If config layout changes, bump `CONFIG_VERSION` and update both firmware and configurator together.
+
+## Build
+- Reproducible firmware builds should use `arduino-cli` with the repo-local `arduino-cli.yaml`.
+- Default firmware target is `arduino:avr:leonardo`.
+- Firmware build settings live in the repo-root `.env`.
+- Upload port is configured via `ARDUINO_PORT` in the repo-root `.env`.
+- USB name is overridden at build time via `build.usb_product` and `build.usb_manufacturer` rather than by editing Arduino IDE core files.

@@ -7,7 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "firmware:compile": "sh ./scripts/firmware.sh compile",
+    "firmware:export": "sh ./scripts/firmware.sh export",
+    "firmware:upload": "sh ./scripts/firmware.sh upload"
   },
   "author": "",
   "license": "ISC",
