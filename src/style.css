@@ -1,0 +1,250 @@
+:root {
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: #f5f1e8;
+  background:
+    radial-gradient(circle at top, rgba(255, 157, 0, 0.2), transparent 35%),
+    linear-gradient(180deg, #171412 0%, #0d0b0a 100%);
+  line-height: 1.4;
+  font-weight: 400;
+  color-scheme: dark;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+#app {
+  width: 100%;
+}
+
+.shell {
+  width: min(960px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 48px 0 72px;
+}
+
+.hero,
+.panel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(20, 18, 16, 0.78);
+  backdrop-filter: blur(18px);
+  border-radius: 28px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  margin-bottom: 20px;
+}
+
+.hero {
+  padding: 36px;
+}
+
+.panel {
+  padding: 28px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.75rem;
+  color: #ffb347;
+}
+
+h1,
+h2,
+.status,
+.chip,
+.field span {
+  margin: 0;
+}
+
+h1 {
+  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-size: clamp(2.3rem, 5vw, 4.4rem);
+  line-height: 0.96;
+  max-width: 12ch;
+}
+
+h2 {
+  font-size: 1.4rem;
+}
+
+.lede {
+  max-width: 52ch;
+  color: rgba(245, 241, 232, 0.72);
+}
+
+.actions,
+.footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.actions {
+  margin: 28px 0 16px;
+}
+
+.primary,
+.ghost {
+  border-radius: 999px;
+  padding: 12px 18px;
+  transition: transform 180ms ease, opacity 180ms ease, background 180ms ease;
+}
+
+.primary {
+  background: linear-gradient(135deg, #ff7b00 0%, #ffd166 100%);
+  color: #24180a;
+  font-weight: 700;
+}
+
+.ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5f1e8;
+}
+
+.primary:hover,
+.ghost:hover {
+  transform: translateY(-1px);
+}
+
+.primary:disabled,
+.ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.status {
+  color: rgba(245, 241, 232, 0.78);
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.chip {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 241, 232, 0.72);
+}
+
+.grid,
+.color-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.color-layout {
+  grid-template-columns: minmax(0, 320px);
+  align-items: end;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  color: rgba(245, 241, 232, 0.72);
+}
+
+.field input,
+.field select {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f1e8;
+  border-radius: 16px;
+  padding: 12px 14px;
+  min-height: 48px;
+}
+
+.field input[type="color"] {
+  padding: 6px;
+}
+
+.accent-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.accent-panel::after {
+  content: "";
+  position: absolute;
+  inset: auto -60px -60px auto;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 72%, white 10%), transparent 68%);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.swatch {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: var(--accent);
+  box-shadow: 0 0 32px color-mix(in srgb, var(--accent) 75%, transparent);
+}
+
+.footer-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 780px) {
+  .shell {
+    width: min(100vw - 20px, 960px);
+    padding: 20px 0 40px;
+  }
+
+  .hero,
+  .panel {
+    border-radius: 22px;
+    padding: 20px;
+  }
+
+  .grid,
+  .color-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .footer-actions {
+    justify-content: stretch;
+  }
+}
