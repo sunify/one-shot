@@ -367,11 +367,11 @@ onMounted(async () => {
     :is-busy="isBusy"
     :is-connected="isConnected"
     :status-text="statusText"
-    title="Конфигуратор для OneShot"
+    title="Конфигуратор<br />для OneShot"
     @connect="connect"
   >
     <template v-if="isConnected">
-      <PanelSection eyebrow="Жесты">
+      <PanelSection>
         <div class="grid">
           <GestureField
             v-for="gestureField in gestureFields"
@@ -389,9 +389,6 @@ onMounted(async () => {
       </PanelSection>
 
       <PanelSection panel-class="accent-panel" title="Подсветка" :accent-style="colorPreviewStyle">
-        <template #aside>
-          <div class="swatch"></div>
-        </template>
         <ColorControl
           v-model="selectedColor"
           :breathing-enabled="form.breathingEnabled"

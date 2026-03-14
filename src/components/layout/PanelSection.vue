@@ -1,9 +1,5 @@
 <script setup>
 defineProps({
-  eyebrow: {
-    type: String,
-    default: '',
-  },
   title: {
     type: String,
     default: '',
@@ -22,10 +18,7 @@ defineProps({
 <template>
   <section :class="['panel', panelClass]" :style="accentStyle">
     <div class="panel-head">
-      <div>
-        <p v-if="eyebrow" class="eyebrow">{{ eyebrow }}</p>
-        <h2 v-if="title">{{ title }}</h2>
-      </div>
+      <h2 v-if="title">{{ title }}</h2>
       <slot name="aside" />
     </div>
 

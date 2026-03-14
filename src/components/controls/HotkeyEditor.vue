@@ -72,7 +72,7 @@ function updateKey(value) {
             type="checkbox"
             @change="updateModifiers(option.value, $event.target.checked)"
           />
-          <span class="modifier-key">{{ modifierLabel(option) }}</span>
+          <span class="modifier-key" :data-key="option.label.toLowerCase()">{{ modifierLabel(option) }}</span>
         </label>
       </div>
       <input
@@ -83,6 +83,5 @@ function updateKey(value) {
         @input="updateKey($event.target.value)"
       />
     </div>
-    <p class="hotkey-preview">{{ formatHotkey(gesture) }}</p>
   </div>
 </template>

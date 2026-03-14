@@ -24,7 +24,7 @@ defineEmits(['connect'])
 <template>
   <main class="shell">
     <section class="hero">
-      <h1>{{ title }}</h1>
+      <h1 v-html="title" />
 
       <div v-if="!isConnected" class="actions">
         <button class="primary" :disabled="isBusy" @click="$emit('connect')">

@@ -33,6 +33,10 @@ const emit = defineEmits(['update:gesture', 'invalid-hotkey-char'])
 
 function gestureSelectValue() {
   if (props.gesture.type === ACTION_TYPES.hotkey) {
+    if (isEditableCharHotkey(props.gesture)) {
+      return props.hotkeySelectValue
+    }
+
     return `hotkey:${props.gesture.code}:${props.gesture.modifiers}`
   }
 
