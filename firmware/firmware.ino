@@ -13,6 +13,7 @@ CRGB leds[NUM_LEDS];
 CRGB baseColor = CRGB(250, 255, 210);
 
 const uint16_t MULTI_TAP_TIMEOUT = 250;
+const uint16_t QUICK_TAP_MAX_PRESS = 100;
 const uint16_t LONG_PRESS = 600;
 const uint16_t DEBOUNCE = 10;
 
@@ -181,8 +182,10 @@ void sendError(uint8_t status) {
 }
 
 void blinkFeedback(uint8_t count) {
+  CRGB feedbackColor = blend(baseColor, CRGB::White, 96);
+
   for (uint8_t i = 0; i < count; i++) {
-    fill_solid(leds, NUM_LEDS, CRGB::White);
+    fill_solid(leds, NUM_LEDS, feedbackColor);
     FastLED.setBrightness(brightnessLevels[brightnessStep]);
     FastLED.show();
     delay(70);
@@ -254,8 +257,16 @@ void updateButton() {
 
     if (state == HIGH) {
       if (!longPressHandled) {
-        tapCount++;
-        lastRelease = now;
+        uint32_t pressDuration = now - pressStart;
+
+        // Only short taps enter the multi-tap window. A slower first release
+        // is treated as an immediate single tap to reduce perceived latency.
+        if (tapCount == 0 && pressDuration > QUICK_TAP_MAX_PRESS) {
+          sendAction(1);
+        } else {
+          tapCount++;
+          lastRelease = now;
+        }
       }
     }
   }
