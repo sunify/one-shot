@@ -255,7 +255,11 @@ h2 {
   border-left-width: 2px;
 
   &[data-key="shift"] {
-    padding-right: 30px;
+    padding-right: 60px;
+  }
+  &[data-key="alt"],
+  &[data-key="ctrl"] {
+    padding-right: 20px;
   }
 
   &[data-key="meta"] {
@@ -269,6 +273,7 @@ h2 {
   border-left-width: 3px;
   border-bottom-width: 3px;
   border-right-width: 3px;
+  background-color: #efefef;
 }
 
 .modifier-option input:focus-visible + .modifier-key {

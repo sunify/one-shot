@@ -64,14 +64,14 @@ const gestureFields = [
 
 const gestureOptions = [
   {
-    label: 'Media',
+    label: 'Медиа',
     options: MEDIA_KEY_OPTIONS.map((option) => ({
       label: `${option.label} · ${toHexCode(option.value)}`,
       value: `consumer:${option.value}`,
     })),
   },
   {
-    label: 'Function Keys',
+    label: 'Функциональные клавиши',
     options: FUNCTION_KEY_OPTIONS.map((option) => ({
       label: option.label,
       value: `hotkey:${option.code}:0`,
@@ -152,7 +152,7 @@ async function refreshKnownPorts() {
 
   if (!isConnected.value) {
     if (hasRememberedPort.value) {
-      statusText.value = 'Устройство доступно для подключения'
+      statusText.value = ''
     } else {
       statusText.value = 'Устройство не подключено'
     }
@@ -225,7 +225,7 @@ async function readLoop() {
 
 async function connect() {
   if (!('serial' in navigator)) {
-    statusText.value = 'Web Serial поддерживается только в Chromium-браузерах'
+    statusText.value = 'Конфигуратор работает только в Chromium-браузерах'
     return
   }
 
@@ -242,7 +242,7 @@ async function connect() {
     isConnected.value = true
     hasRememberedPort.value = true
     hasAvailablePort.value = true
-    statusText.value = 'Устройство подключено'
+    statusText.value = ''
     void readLoop()
     await refreshConfig()
   } catch (error) {
@@ -352,7 +352,7 @@ onBeforeUnmount(() => {
 
 onMounted(async () => {
   if (!('serial' in navigator)) {
-    statusText.value = 'Web Serial поддерживается только в Chromium-браузерах'
+    statusText.value = 'Конфгирутор работает только в Хроме'
     return
   }
 
@@ -395,13 +395,14 @@ onMounted(async () => {
           @update:breathing-enabled="form.breathingEnabled = $event"
         />
       </PanelSection>
-
+    </template>
+    <template v-if="isConnected" #footer>
       <section class="footer-actions">
-        <button class="ghost" :disabled="isBusy" @click="resetConfig">
-          Сбросить
-        </button>
         <button class="primary" :disabled="isBusy" @click="saveConfig">
           Сохранить
+        </button>
+        <button class="ghost" :disabled="isBusy" @click="resetConfig">
+          Сбросить
         </button>
       </section>
     </template>

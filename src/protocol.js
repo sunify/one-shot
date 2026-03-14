@@ -33,14 +33,14 @@ export const MODIFIERS = {
 }
 
 export const MEDIA_KEY_OPTIONS = [
-  { label: 'Play / Pause', value: 0x00cd },
-  { label: 'Next Track', value: 0x00b5 },
-  { label: 'Previous Track', value: 0x00b6 },
-  { label: 'Stop', value: 0x00b7 },
-  { label: 'Mute', value: 0x00e2 },
-  { label: 'Volume Up', value: 0x00e9 },
-  { label: 'Volume Down', value: 0x00ea },
-  { label: 'Search', value: 0x0221 },
+  { label: 'Плей / Пауза', value: 0x00cd },
+  { label: 'Следующий трек', value: 0x00b5 },
+  { label: 'Предыдущий трек', value: 0x00b6 },
+  { label: 'Стоп', value: 0x00b7 },
+  { label: 'Без звука', value: 0x00e2 },
+  { label: 'Громче', value: 0x00e9 },
+  { label: 'Тише', value: 0x00ea },
+  { label: 'Поиск', value: 0x0221 },
 ]
 
 export const FUNCTION_KEY_OPTIONS = [
@@ -70,16 +70,21 @@ export const MODIFIER_OPTIONS = [
 ]
 
 const KEY_ALIASES = {
-  ArrowUp: 'Up',
-  ArrowDown: 'Down',
-  ArrowLeft: 'Left',
-  ArrowRight: 'Right',
+  ArrowUp: 'Вверх',
+  ArrowDown: 'Вниз',
+  ArrowLeft: 'Влево',
+  ArrowRight: 'Вправо',
   Escape: 'Esc',
   Backspace: 'Backspace',
   Delete: 'Delete',
   Enter: 'Enter',
-  Space: 'Space',
+  Space: 'Пробел',
   Tab: 'Tab',
+  PageUp: 'PgUp',
+  PageDown: 'PgDn',
+  PrintScreen: 'Print Screen',
+  ScrollLock: 'Scroll Lock',
+  CapsLock: 'Caps Lock',
 }
 
 const CODE_TO_HID = {
@@ -326,7 +331,7 @@ export function toHexCode(value) {
 
 export function formatHotkey(gesture) {
   if (!gesture?.code) {
-    return 'Select a key'
+    return 'Выберите клавишу'
   }
 
   const parts = []

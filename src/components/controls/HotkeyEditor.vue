@@ -30,6 +30,10 @@ function modifierLabel(option) {
     return '⌘'
   }
 
+  if (option.label === 'Meta') {
+    return 'Мета'
+  }
+
   return option.label
 }
 
