@@ -11,7 +11,8 @@
 - `CMD_SET_CONFIG (0x02)` writes config payload.
 - `CMD_RESET_CONFIG (0x03)` restores defaults and returns config.
 - `CMD_CONFIG (0x81)` returns packed config payload.
-- Config payload is 11 bytes total: `version:u8`, `single:u16`, `double:u16`, `triple:u16`, `r:u8`, `g:u8`, `b:u8`, `crc:u8`.
+- Config payload is 17 bytes total: `version:u8`, then for each gesture `type:u8 code:u16 modifiers:u8`, then `r:u8`, `g:u8`, `b:u8`, `crc:u8`.
+- Gesture action types: `0x01` for consumer preset, `0x02` for one-key hotkey with modifiers.
 
 ## Persistence
 - On Arduino Pro Micro, persistent config is stored in EEPROM via `EEPROM.get/put`.

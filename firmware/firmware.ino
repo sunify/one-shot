@@ -20,6 +20,12 @@ const uint32_t SERIAL_BAUD = 115200;
 const uint8_t FRAME_MAGIC_1 = 0x4F;
 const uint8_t FRAME_MAGIC_2 = 0x53;
 const uint8_t PROTOCOL_VERSION = 1;
+const uint8_t ACTION_TYPE_CONSUMER = 0x01;
+const uint8_t ACTION_TYPE_HOTKEY = 0x02;
+const uint8_t MODIFIER_CTRL = 0x01;
+const uint8_t MODIFIER_SHIFT = 0x02;
+const uint8_t MODIFIER_ALT = 0x04;
+const uint8_t MODIFIER_GUI = 0x08;
 
 enum Command : uint8_t {
   CMD_GET_CONFIG = 0x01,
@@ -41,16 +47,22 @@ enum StatusCode : uint8_t {
 
 struct __attribute__((packed)) DeviceConfig {
   uint8_t version;
+  uint8_t singleTapType;
   uint16_t singleTapCode;
+  uint8_t singleTapModifiers;
+  uint8_t doubleTapType;
   uint16_t doubleTapCode;
+  uint8_t doubleTapModifiers;
+  uint8_t tripleTapType;
   uint16_t tripleTapCode;
+  uint8_t tripleTapModifiers;
   uint8_t red;
   uint8_t green;
   uint8_t blue;
   uint8_t crc;
 };
 
-const uint8_t CONFIG_VERSION = 1;
+const uint8_t CONFIG_VERSION = 2;
 const int EEPROM_ADDRESS = 0;
 DeviceConfig config;
 
@@ -69,9 +81,15 @@ uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
 DeviceConfig defaultConfig() {
   DeviceConfig cfg;
   cfg.version = CONFIG_VERSION;
+  cfg.singleTapType = ACTION_TYPE_CONSUMER;
   cfg.singleTapCode = MEDIA_PLAY_PAUSE;
+  cfg.singleTapModifiers = 0;
+  cfg.doubleTapType = ACTION_TYPE_CONSUMER;
   cfg.doubleTapCode = MEDIA_NEXT;
+  cfg.doubleTapModifiers = 0;
+  cfg.tripleTapType = ACTION_TYPE_CONSUMER;
   cfg.tripleTapCode = MEDIA_PREVIOUS;
+  cfg.tripleTapModifiers = 0;
   cfg.red = 250;
   cfg.green = 255;
   cfg.blue = 210;
@@ -182,13 +200,41 @@ void nextBrightness() {
   blinkFeedback(brightnessStep == 0 ? 3 : 1);
 }
 
+void pressModifiers(uint8_t modifiers) {
+  if (modifiers & MODIFIER_CTRL) Keyboard.press(KEY_LEFT_CTRL);
+  if (modifiers & MODIFIER_SHIFT) Keyboard.press(KEY_LEFT_SHIFT);
+  if (modifiers & MODIFIER_ALT) Keyboard.press(KEY_LEFT_ALT);
+  if (modifiers & MODIFIER_GUI) Keyboard.press(KEY_LEFT_GUI);
+}
+
+void sendGestureAction(uint8_t actionType, uint16_t actionCode, uint8_t modifiers) {
+  if (actionType == ACTION_TYPE_HOTKEY) {
+    pressModifiers(modifiers);
+    Keyboard.press(static_cast<KeyboardKeycode>(actionCode));
+    delay(12);
+    Keyboard.releaseAll();
+    return;
+  }
+
+  Consumer.write(actionCode);
+}
+
 void sendAction(uint8_t taps) {
-  uint16_t code = config.tripleTapCode;
+  uint8_t actionType = config.tripleTapType;
+  uint16_t actionCode = config.tripleTapCode;
+  uint8_t modifiers = config.tripleTapModifiers;
 
-  if (taps == 1) code = config.singleTapCode;
-  else if (taps == 2) code = config.doubleTapCode;
+  if (taps == 1) {
+    actionType = config.singleTapType;
+    actionCode = config.singleTapCode;
+    modifiers = config.singleTapModifiers;
+  } else if (taps == 2) {
+    actionType = config.doubleTapType;
+    actionCode = config.doubleTapCode;
+    modifiers = config.doubleTapModifiers;
+  }
 
-  Consumer.write(code);
+  sendGestureAction(actionType, actionCode, modifiers);
 }
 
 void updateButton() {
@@ -269,6 +315,18 @@ bool readExact(uint8_t *buffer, uint8_t len) {
   return true;
 }
 
+bool isActionValid(uint8_t actionType, uint16_t actionCode, uint8_t modifiers) {
+  if (actionType == ACTION_TYPE_CONSUMER) {
+    return modifiers == 0;
+  }
+
+  if (actionType == ACTION_TYPE_HOTKEY) {
+    return actionCode <= 0xFF;
+  }
+
+  return false;
+}
+
 void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
   if (payloadLen != sizeof(DeviceConfig)) {
     sendError(STATUS_BAD_PAYLOAD);
@@ -280,6 +338,13 @@ void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
 
   if (!isConfigValid(nextConfig)) {
     sendError(STATUS_BAD_CRC);
+    return;
+  }
+
+  if (!isActionValid(nextConfig.singleTapType, nextConfig.singleTapCode, nextConfig.singleTapModifiers) ||
+      !isActionValid(nextConfig.doubleTapType, nextConfig.doubleTapCode, nextConfig.doubleTapModifiers) ||
+      !isActionValid(nextConfig.tripleTapType, nextConfig.tripleTapCode, nextConfig.tripleTapModifiers)) {
+    sendError(STATUS_BAD_PAYLOAD);
     return;
   }
 
@@ -367,6 +432,7 @@ void setup() {
   FastLED.clear();
 
   Consumer.begin();
+  Keyboard.begin();
 
   loadConfig();
   updateBaseColor();

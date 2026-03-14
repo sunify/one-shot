@@ -1,13 +1,19 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import {
+  ACTION_TYPES,
   COMMANDS,
+  HOTKEY_SELECT_VALUE,
   MEDIA_KEY_OPTIONS,
+  MODIFIER_OPTIONS,
   SERIAL_BAUD,
   STATUS,
   buildFrame,
   decodeConfig,
   encodeConfig,
+  formatHotkey,
+  hotkeyCharFromCode,
+  hotkeyCodeFromChar,
   parseFrames,
   toHexCode,
 } from './protocol'
@@ -22,9 +28,9 @@ const receiveBuffer = ref(new Uint8Array())
 const pendingResolver = ref(null)
 
 const form = reactive({
-  singleTapCode: 0x00cd,
-  doubleTapCode: 0x00b5,
-  tripleTapCode: 0x00b6,
+  singleTap: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
+  doubleTap: { type: ACTION_TYPES.consumer, code: 0x00b5, modifiers: 0 },
+  tripleTap: { type: ACTION_TYPES.consumer, code: 0x00b6, modifiers: 0 },
   red: 250,
   green: 255,
   blue: 210,
@@ -32,9 +38,7 @@ const form = reactive({
 
 const selectedColor = computed({
   get() {
-    return `#${[form.red, form.green, form.blue]
-      .map((value) => value.toString(16).padStart(2, '0'))
-      .join('')}`
+    return `#${[form.red, form.green, form.blue].map((value) => value.toString(16).padStart(2, '0')).join('')}`
   },
   set(value) {
     form.red = Number.parseInt(value.slice(1, 3), 16)
@@ -47,6 +51,20 @@ const colorPreviewStyle = computed(() => ({
   '--accent': `rgb(${form.red}, ${form.green}, ${form.blue})`,
 }))
 
+const gestureFields = [
+  { key: 'singleTap', label: 'Одиночное нажатие' },
+  { key: 'doubleTap', label: 'Двойное нажатие' },
+  { key: 'tripleTap', label: 'Тройное нажатие' },
+]
+
+const gestureOptions = MEDIA_KEY_OPTIONS.map((option) => ({
+  label: `${option.label} · ${toHexCode(option.value)}`,
+  value: String(option.value),
+}))
+
+const modifierOptions = MODIFIER_OPTIONS
+const isMacLike = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+
 function mergeBuffers(current, chunk) {
   const merged = new Uint8Array(current.length + chunk.length)
   merged.set(current)
@@ -54,10 +72,18 @@ function mergeBuffers(current, chunk) {
   return merged
 }
 
+function cloneGesture(gesture) {
+  return {
+    type: gesture.type,
+    code: gesture.code,
+    modifiers: gesture.modifiers,
+  }
+}
+
 function applyConfig(config) {
-  form.singleTapCode = config.singleTapCode
-  form.doubleTapCode = config.doubleTapCode
-  form.tripleTapCode = config.tripleTapCode
+  form.singleTap = cloneGesture(config.singleTap)
+  form.doubleTap = cloneGesture(config.doubleTap)
+  form.tripleTap = cloneGesture(config.tripleTap)
   form.red = config.red
   form.green = config.green
   form.blue = config.blue
@@ -108,7 +134,6 @@ async function readLoop() {
       for (const frame of parsed.frames) {
         if (frame.command === COMMANDS.config) {
           applyConfig(decodeConfig(frame.payload))
-          statusText.value = 'Конфигурация считана'
         } else if (frame.command === COMMANDS.error) {
           statusText.value = `Ошибка устройства: ${frame.payload[0]}`
         }
@@ -144,7 +169,7 @@ async function connect() {
     void readLoop()
     await refreshConfig()
   } catch (error) {
-    statusText.value = error.message
+    // statusText.value = error.message
   }
 }
 
@@ -198,7 +223,6 @@ async function refreshConfig() {
     }
 
     applyConfig(decodeConfig(frame.payload))
-    statusText.value = 'Конфигурация обновлена из устройства'
   })
 }
 
@@ -223,12 +247,76 @@ async function resetConfig() {
     }
 
     applyConfig(decodeConfig(frame.payload))
-    statusText.value = 'Конфигурация сброшена к значениям по умолчанию'
   })
 }
 
-function updateCode(field, value) {
-  form[field] = Number(value)
+function gestureSelectValue(gesture) {
+  return gesture.type === ACTION_TYPES.hotkey ? HOTKEY_SELECT_VALUE : String(gesture.code)
+}
+
+function updateGesture(field, value) {
+  if (value === HOTKEY_SELECT_VALUE) {
+    const gesture = form[field]
+    form[field] = {
+      type: ACTION_TYPES.hotkey,
+      code: gesture.type === ACTION_TYPES.hotkey ? gesture.code : 0x04,
+      modifiers: gesture.type === ACTION_TYPES.hotkey ? gesture.modifiers : 0,
+    }
+    return
+  }
+
+  form[field] = {
+    type: ACTION_TYPES.consumer,
+    code: Number(value),
+    modifiers: 0,
+  }
+}
+
+function hotkeyLabel(gesture) {
+  return formatHotkey(gesture)
+}
+
+function selectedModifiers(gesture) {
+  return modifierOptions
+    .filter((option) => (gesture.modifiers & Number(option.value)) !== 0)
+    .map((option) => option.value)
+}
+
+function hotkeyChar(gesture) {
+  return hotkeyCharFromCode(gesture.code)
+}
+
+function modifierLabel(option) {
+  if (option.label === 'Meta' && isMacLike) {
+    return '⌘'
+  }
+
+  return option.label
+}
+
+function updateHotkeyModifiers(field, values) {
+  const modifiers = values.reduce((mask, value) => mask | Number(value), 0)
+  form[field] = {
+    ...form[field],
+    type: ACTION_TYPES.hotkey,
+    modifiers,
+  }
+}
+
+function updateHotkeyKey(field, value) {
+  const nextValue = value.slice(0, 1)
+  const code = hotkeyCodeFromChar(nextValue)
+
+  if (nextValue && code === 0) {
+    statusText.value = 'Пока поддерживаются только латинские буквы и цифры'
+    return
+  }
+
+  form[field] = {
+    ...form[field],
+    type: ACTION_TYPES.hotkey,
+    code,
+  }
 }
 
 onBeforeUnmount(() => {
@@ -259,31 +347,45 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="grid">
-          <label class="field">
-            <span>Нажатие</span>
-            <select :value="form.singleTapCode" @change="updateCode('singleTapCode', $event.target.value)">
-              <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
-                {{ option.label }} · {{ toHexCode(option.value) }}
+          <label v-for="gestureField in gestureFields" :key="gestureField.key" class="field">
+            <span>{{ gestureField.label }}</span>
+            <select
+              :value="gestureSelectValue(form[gestureField.key])"
+              @change="updateGesture(gestureField.key, $event.target.value)"
+            >
+              <option :value="HOTKEY_SELECT_VALUE">Hotkey</option>
+              <option v-for="option in gestureOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
               </option>
             </select>
-          </label>
-
-          <label class="field">
-            <span>Двойное нажатие</span>
-            <select :value="form.doubleTapCode" @change="updateCode('doubleTapCode', $event.target.value)">
-              <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
-                {{ option.label }} · {{ toHexCode(option.value) }}
-              </option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>Тройное нажатие</span>
-            <select :value="form.tripleTapCode" @change="updateCode('tripleTapCode', $event.target.value)">
-              <option v-for="option in MEDIA_KEY_OPTIONS" :key="option.value" :value="option.value">
-                {{ option.label }} · {{ toHexCode(option.value) }}
-              </option>
-            </select>
+            <div v-if="form[gestureField.key].type === ACTION_TYPES.hotkey" class="hotkey-editor">
+              <div class="hotkey-row">
+                <div class="modifier-picker" role="group" aria-label="Hotkey modifiers">
+                  <label v-for="option in modifierOptions" :key="option.value" class="modifier-option">
+                    <input
+                      :checked="selectedModifiers(form[gestureField.key]).includes(option.value)"
+                      type="checkbox"
+                      @change="
+                        updateHotkeyModifiers(
+                          gestureField.key,
+                          $event.target.checked
+                            ? [...selectedModifiers(form[gestureField.key]), option.value]
+                            : selectedModifiers(form[gestureField.key]).filter((value) => value !== option.value),
+                        )
+                      "
+                    />
+                    <span class="modifier-key">{{ modifierLabel(option) }}</span>
+                  </label>
+                </div>
+                <input
+                  :value="hotkeyChar(form[gestureField.key])"
+                  class="hotkey-char-input"
+                  maxlength="1"
+                  type="text"
+                  @input="updateHotkeyKey(gestureField.key, $event.target.value)"
+                />
+              </div>
+            </div>
           </label>
         </div>
       </section>
@@ -291,26 +393,30 @@ onBeforeUnmount(() => {
       <section class="panel accent-panel" :style="colorPreviewStyle">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Подсветка</p>
-            <h2>RGB цвет базы</h2>
+            <h2>Подсветка</h2>
           </div>
           <div class="swatch"></div>
         </div>
 
         <div class="color-layout">
           <label class="field">
-            <span>Цвет</span>
             <input v-model="selectedColor" type="color" />
           </label>
         </div>
       </section>
 
       <section class="footer-actions">
-        <button class="primary" :disabled="isBusy" @click="saveConfig">
-          Сохранить в устройство
+        <button class="ghost" :disabled="isBusy" @click="disconnect">
+          Отключить
+        </button>
+        <button class="ghost" :disabled="isBusy" @click="refreshConfig">
+          Считать конфиг
         </button>
         <button class="ghost" :disabled="isBusy" @click="resetConfig">
-          Сбросить по умолчанию
+          Сбросить
+        </button>
+        <button class="primary" :disabled="isBusy" @click="saveConfig">
+          Сохранить
         </button>
       </section>
     </template>
