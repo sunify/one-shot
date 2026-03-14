@@ -40,9 +40,25 @@ export const MEDIA_KEY_OPTIONS = [
   { label: 'Mute', value: 0x00e2 },
   { label: 'Volume Up', value: 0x00e9 },
   { label: 'Volume Down', value: 0x00ea },
-  { label: 'Browser Home', value: 0x0223 },
-  { label: 'Calculator', value: 0x0192 },
   { label: 'Search', value: 0x0221 },
+]
+
+export const FUNCTION_KEY_OPTIONS = [
+  { label: 'F1', code: 0x3a },
+  { label: 'F2', code: 0x3b },
+  { label: 'F3', code: 0x3c },
+  { label: 'F4', code: 0x3d },
+  { label: 'F5', code: 0x3e },
+  { label: 'F6', code: 0x3f },
+  { label: 'F7', code: 0x40 },
+  { label: 'F8', code: 0x41 },
+  { label: 'F9', code: 0x42 },
+  { label: 'F10', code: 0x43 },
+  { label: 'F11', code: 0x44 },
+  { label: 'F12', code: 0x45 },
+  { label: 'F13', code: 0x68 },
+  { label: 'F14', code: 0x69 },
+  { label: 'F15', code: 0x6a },
 ]
 
 export const HOTKEY_SELECT_VALUE = 'hotkey'
@@ -223,28 +239,29 @@ function readGesture(view, offset) {
 }
 
 export function encodeConfig(config) {
-  const payload = new Uint8Array(16)
+  const payload = new Uint8Array(17)
   const view = new DataView(payload.buffer)
 
-  payload[0] = 2
+  payload[0] = 3
   writeGesture(view, 1, config.singleTap)
   writeGesture(view, 5, config.doubleTap)
   writeGesture(view, 9, config.tripleTap)
   payload[13] = config.red
   payload[14] = config.green
   payload[15] = config.blue
+  payload[16] = config.breathingEnabled ? 1 : 0
 
   const crc = computeCrc(payload)
   return new Uint8Array([...payload, crc])
 }
 
 export function decodeConfig(payload) {
-  if (payload.length !== 17) {
+  if (payload.length !== 18) {
     throw new Error(`Unexpected config payload size: ${payload.length}`)
   }
 
-  const raw = payload.slice(0, 16)
-  const storedCrc = payload[16]
+  const raw = payload.slice(0, 17)
+  const storedCrc = payload[17]
   const computed = computeCrc(raw)
 
   if (storedCrc !== computed) {
@@ -260,6 +277,7 @@ export function decodeConfig(payload) {
     red: raw[13],
     green: raw[14],
     blue: raw[15],
+    breathingEnabled: raw[16] === 1,
   }
 }
 
@@ -332,4 +350,8 @@ export function hotkeyCodeFromChar(value) {
   }
 
   return CHAR_TO_HID[value.toLowerCase()] ?? 0
+}
+
+export function isEditableCharHotkey(gesture) {
+  return gesture?.type === ACTION_TYPES.hotkey && hotkeyCharFromCode(gesture.code) !== ''
 }

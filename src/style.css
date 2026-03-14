@@ -169,6 +169,18 @@ h2 {
   align-items: end;
 }
 
+.toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(245, 241, 232, 0.82);
+}
+
+.toggle-field input {
+  width: auto;
+  min-height: auto;
+}
+
 .field {
   display: grid;
   gap: 8px;

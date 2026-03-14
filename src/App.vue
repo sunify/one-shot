@@ -1,8 +1,13 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import ColorControl from './components/controls/ColorControl.vue'
+import GestureField from './components/controls/GestureField.vue'
+import AppShell from './components/layout/AppShell.vue'
+import PanelSection from './components/layout/PanelSection.vue'
 import {
   ACTION_TYPES,
   COMMANDS,
+  FUNCTION_KEY_OPTIONS,
   HOTKEY_SELECT_VALUE,
   MEDIA_KEY_OPTIONS,
   MODIFIER_OPTIONS,
@@ -11,9 +16,6 @@ import {
   buildFrame,
   decodeConfig,
   encodeConfig,
-  formatHotkey,
-  hotkeyCharFromCode,
-  hotkeyCodeFromChar,
   parseFrames,
   toHexCode,
 } from './protocol'
@@ -23,7 +25,9 @@ const reader = ref(null)
 const writer = ref(null)
 const isConnected = ref(false)
 const isBusy = ref(false)
-const statusText = ref()
+const hasRememberedPort = ref(false)
+const hasAvailablePort = ref(false)
+const statusText = ref('Устройство не подключено')
 const receiveBuffer = ref(new Uint8Array())
 const pendingResolver = ref(null)
 
@@ -34,6 +38,7 @@ const form = reactive({
   red: 250,
   green: 255,
   blue: 210,
+  breathingEnabled: true,
 })
 
 const selectedColor = computed({
@@ -57,13 +62,25 @@ const gestureFields = [
   { key: 'tripleTap', label: 'Тройное нажатие' },
 ]
 
-const gestureOptions = MEDIA_KEY_OPTIONS.map((option) => ({
-  label: `${option.label} · ${toHexCode(option.value)}`,
-  value: String(option.value),
-}))
+const gestureOptions = [
+  {
+    label: 'Media',
+    options: MEDIA_KEY_OPTIONS.map((option) => ({
+      label: `${option.label} · ${toHexCode(option.value)}`,
+      value: `consumer:${option.value}`,
+    })),
+  },
+  {
+    label: 'Function Keys',
+    options: FUNCTION_KEY_OPTIONS.map((option) => ({
+      label: option.label,
+      value: `hotkey:${option.code}:0`,
+    })),
+  },
+]
 
-const modifierOptions = MODIFIER_OPTIONS
 const isMacLike = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+const modifierOptions = MODIFIER_OPTIONS
 
 function mergeBuffers(current, chunk) {
   const merged = new Uint8Array(current.length + chunk.length)
@@ -87,6 +104,7 @@ function applyConfig(config) {
   form.red = config.red
   form.green = config.green
   form.blue = config.blue
+  form.breathingEnabled = config.breathingEnabled
 }
 
 function completePending(frame) {
@@ -97,6 +115,63 @@ function completePending(frame) {
   const resolve = pendingResolver.value
   pendingResolver.value = null
   resolve(frame)
+}
+
+function getPortSignature(serialPort) {
+  if (!serialPort?.getInfo) {
+    return ''
+  }
+
+  const info = serialPort.getInfo()
+  return [info.usbVendorId ?? 'na', info.usbProductId ?? 'na'].join(':')
+}
+
+function isSamePort(a, b) {
+  if (!a || !b) {
+    return false
+  }
+
+  return a === b || getPortSignature(a) === getPortSignature(b)
+}
+
+async function refreshKnownPorts() {
+  if (!('serial' in navigator)) {
+    hasAvailablePort.value = false
+    hasRememberedPort.value = false
+    return
+  }
+
+  const ports = await navigator.serial.getPorts()
+  hasAvailablePort.value = ports.length > 0
+
+  if (port.value) {
+    hasRememberedPort.value = ports.some((knownPort) => isSamePort(knownPort, port.value))
+  } else {
+    hasRememberedPort.value = hasAvailablePort.value
+  }
+
+  if (!isConnected.value) {
+    if (hasRememberedPort.value) {
+      statusText.value = 'Устройство доступно для подключения'
+    } else {
+      statusText.value = 'Устройство не подключено'
+    }
+  }
+}
+
+async function handleSerialConnect() {
+  await refreshKnownPorts()
+}
+
+async function handleSerialDisconnect(event) {
+  const disconnectedPort = event.target
+
+  if (port.value && isSamePort(disconnectedPort, port.value)) {
+    statusText.value = 'Устройство отключено'
+    await disconnect({ preserveStatus: true })
+  }
+
+  await refreshKnownPorts()
 }
 
 async function waitForFrame(expectedCommands) {
@@ -165,15 +240,18 @@ async function connect() {
     writer.value = port.value.writable.getWriter()
     receiveBuffer.value = new Uint8Array()
     isConnected.value = true
+    hasRememberedPort.value = true
+    hasAvailablePort.value = true
     statusText.value = 'Устройство подключено'
     void readLoop()
     await refreshConfig()
   } catch (error) {
-    // statusText.value = error.message
+    statusText.value = error.message ?? 'Не удалось подключить устройство'
   }
 }
 
-async function disconnect() {
+async function disconnect(options = {}) {
+  const { preserveStatus = false } = options
   pendingResolver.value = null
 
   try {
@@ -193,6 +271,11 @@ async function disconnect() {
     writer.value = null
     port.value = null
     isConnected.value = false
+    await refreshKnownPorts()
+
+    if (!preserveStatus && !hasRememberedPort.value) {
+      statusText.value = 'Устройство не подключено'
+    }
   }
 }
 
@@ -250,168 +333,73 @@ async function resetConfig() {
   })
 }
 
-function gestureSelectValue(gesture) {
-  return gesture.type === ACTION_TYPES.hotkey ? HOTKEY_SELECT_VALUE : String(gesture.code)
+function updateGesture(field, gesture) {
+  form[field] = gesture
 }
 
-function updateGesture(field, value) {
-  if (value === HOTKEY_SELECT_VALUE) {
-    const gesture = form[field]
-    form[field] = {
-      type: ACTION_TYPES.hotkey,
-      code: gesture.type === ACTION_TYPES.hotkey ? gesture.code : 0x04,
-      modifiers: gesture.type === ACTION_TYPES.hotkey ? gesture.modifiers : 0,
-    }
-    return
-  }
-
-  form[field] = {
-    type: ACTION_TYPES.consumer,
-    code: Number(value),
-    modifiers: 0,
-  }
-}
-
-function hotkeyLabel(gesture) {
-  return formatHotkey(gesture)
-}
-
-function selectedModifiers(gesture) {
-  return modifierOptions
-    .filter((option) => (gesture.modifiers & Number(option.value)) !== 0)
-    .map((option) => option.value)
-}
-
-function hotkeyChar(gesture) {
-  return hotkeyCharFromCode(gesture.code)
-}
-
-function modifierLabel(option) {
-  if (option.label === 'Meta' && isMacLike) {
-    return '⌘'
-  }
-
-  return option.label
-}
-
-function updateHotkeyModifiers(field, values) {
-  const modifiers = values.reduce((mask, value) => mask | Number(value), 0)
-  form[field] = {
-    ...form[field],
-    type: ACTION_TYPES.hotkey,
-    modifiers,
-  }
-}
-
-function updateHotkeyKey(field, value) {
-  const nextValue = value.slice(0, 1)
-  const code = hotkeyCodeFromChar(nextValue)
-
-  if (nextValue && code === 0) {
-    statusText.value = 'Пока поддерживаются только латинские буквы и цифры'
-    return
-  }
-
-  form[field] = {
-    ...form[field],
-    type: ACTION_TYPES.hotkey,
-    code,
-  }
+function handleInvalidHotkeyChar() {
+  statusText.value = 'Пока поддерживаются только латинские буквы и цифры'
 }
 
 onBeforeUnmount(() => {
+  if ('serial' in navigator) {
+    navigator.serial.removeEventListener('connect', handleSerialConnect)
+    navigator.serial.removeEventListener('disconnect', handleSerialDisconnect)
+  }
+
   disconnect()
+})
+
+onMounted(async () => {
+  if (!('serial' in navigator)) {
+    statusText.value = 'Web Serial поддерживается только в Chromium-браузерах'
+    return
+  }
+
+  navigator.serial.addEventListener('connect', handleSerialConnect)
+  navigator.serial.addEventListener('disconnect', handleSerialDisconnect)
+  await refreshKnownPorts()
 })
 </script>
 
 <template>
-  <main class="shell">
-    <section class="hero">
-      <h1>Конфигуратор для OneShot</h1>
-
-      <div v-if="!isConnected" class="actions">
-        <button class="primary" :disabled="isBusy" @click="connect">
-          Подключить устройство
-        </button>
-      </div>
-
-      <p class="status">{{ statusText }}</p>
-    </section>
-
+  <AppShell
+    :is-busy="isBusy"
+    :is-connected="isConnected"
+    :status-text="statusText"
+    title="Конфигуратор для OneShot"
+    @connect="connect"
+  >
     <template v-if="isConnected">
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Жесты</p>
-          </div>
-        </div>
-
+      <PanelSection eyebrow="Жесты">
         <div class="grid">
-          <label v-for="gestureField in gestureFields" :key="gestureField.key" class="field">
-            <span>{{ gestureField.label }}</span>
-            <select
-              :value="gestureSelectValue(form[gestureField.key])"
-              @change="updateGesture(gestureField.key, $event.target.value)"
-            >
-              <option :value="HOTKEY_SELECT_VALUE">Hotkey</option>
-              <option v-for="option in gestureOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-            <div v-if="form[gestureField.key].type === ACTION_TYPES.hotkey" class="hotkey-editor">
-              <div class="hotkey-row">
-                <div class="modifier-picker" role="group" aria-label="Hotkey modifiers">
-                  <label v-for="option in modifierOptions" :key="option.value" class="modifier-option">
-                    <input
-                      :checked="selectedModifiers(form[gestureField.key]).includes(option.value)"
-                      type="checkbox"
-                      @change="
-                        updateHotkeyModifiers(
-                          gestureField.key,
-                          $event.target.checked
-                            ? [...selectedModifiers(form[gestureField.key]), option.value]
-                            : selectedModifiers(form[gestureField.key]).filter((value) => value !== option.value),
-                        )
-                      "
-                    />
-                    <span class="modifier-key">{{ modifierLabel(option) }}</span>
-                  </label>
-                </div>
-                <input
-                  :value="hotkeyChar(form[gestureField.key])"
-                  class="hotkey-char-input"
-                  maxlength="1"
-                  type="text"
-                  @input="updateHotkeyKey(gestureField.key, $event.target.value)"
-                />
-              </div>
-            </div>
-          </label>
+          <GestureField
+            v-for="gestureField in gestureFields"
+            :key="gestureField.key"
+            :gesture="form[gestureField.key]"
+            :gesture-options="gestureOptions"
+            :hotkey-select-value="HOTKEY_SELECT_VALUE"
+            :is-mac-like="isMacLike"
+            :label="gestureField.label"
+            :modifier-options="modifierOptions"
+            @invalid-hotkey-char="handleInvalidHotkeyChar"
+            @update:gesture="updateGesture(gestureField.key, $event)"
+          />
         </div>
-      </section>
+      </PanelSection>
 
-      <section class="panel accent-panel" :style="colorPreviewStyle">
-        <div class="panel-head">
-          <div>
-            <h2>Подсветка</h2>
-          </div>
+      <PanelSection panel-class="accent-panel" title="Подсветка" :accent-style="colorPreviewStyle">
+        <template #aside>
           <div class="swatch"></div>
-        </div>
-
-        <div class="color-layout">
-          <label class="field">
-            <input v-model="selectedColor" type="color" />
-          </label>
-        </div>
-      </section>
+        </template>
+        <ColorControl
+          v-model="selectedColor"
+          :breathing-enabled="form.breathingEnabled"
+          @update:breathing-enabled="form.breathingEnabled = $event"
+        />
+      </PanelSection>
 
       <section class="footer-actions">
-        <button class="ghost" :disabled="isBusy" @click="disconnect">
-          Отключить
-        </button>
-        <button class="ghost" :disabled="isBusy" @click="refreshConfig">
-          Считать конфиг
-        </button>
         <button class="ghost" :disabled="isBusy" @click="resetConfig">
           Сбросить
         </button>
@@ -420,5 +408,5 @@ onBeforeUnmount(() => {
         </button>
       </section>
     </template>
-  </main>
+  </AppShell>
 </template>

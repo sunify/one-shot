@@ -60,10 +60,11 @@ struct __attribute__((packed)) DeviceConfig {
   uint8_t red;
   uint8_t green;
   uint8_t blue;
+  uint8_t breathingEnabled;
   uint8_t crc;
 };
 
-const uint8_t CONFIG_VERSION = 2;
+const uint8_t CONFIG_VERSION = 3;
 const int EEPROM_ADDRESS = 0;
 DeviceConfig config;
 
@@ -94,6 +95,7 @@ DeviceConfig defaultConfig() {
   cfg.red = 250;
   cfg.green = 255;
   cfg.blue = 210;
+  cfg.breathingEnabled = 1;
   cfg.crc = 0;
   return cfg;
 }
@@ -287,6 +289,13 @@ void updateButton() {
 
 void updateLEDs() {
   uint8_t baseBrightness = brightnessLevels[brightnessStep];
+
+  if (!config.breathingEnabled) {
+    fill_solid(leds, NUM_LEDS, baseColor);
+    FastLED.setBrightness(baseBrightness);
+    FastLED.show();
+    return;
+  }
 
   uint8_t b1 = beatsin8(15, 110, 255, 0, 0);
   uint8_t b2 = beatsin8(15, 110, 255, 0, 88);
