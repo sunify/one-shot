@@ -10,6 +10,10 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  isConnecting: {
+    type: Boolean,
+    default: false,
+  },
   statusText: {
     type: String,
     default: '',
@@ -66,8 +70,8 @@ defineEmits(['connect'])
       <h1 v-html="title" />
 
       <div v-if="!isConnected" class="actions">
-        <button class="primary" :disabled="isBusy" @click="$emit('connect')">
-          Подключить устройство
+        <button class="primary" :disabled="isBusy || isConnecting" @click="$emit('connect')">
+          {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
         </button>
       </div>
 

@@ -24,6 +24,7 @@ const port = ref(null)
 const reader = ref(null)
 const writer = ref(null)
 const isConnected = ref(false)
+const isConnecting = ref(false)
 const isBusy = ref(false)
 const hasRememberedPort = ref(false)
 const hasAvailablePort = ref(false)
@@ -269,6 +270,8 @@ async function connect() {
   }
 
   try {
+    isConnecting.value = true
+
     if (isConnected.value) {
       await disconnect()
     }
@@ -278,14 +281,20 @@ async function connect() {
     reader.value = port.value.readable.getReader()
     writer.value = port.value.writable.getWriter()
     receiveBuffer.value = new Uint8Array()
-    isConnected.value = true
     hasRememberedPort.value = true
     hasAvailablePort.value = true
     statusText.value = ''
     void readLoop()
+    await verifyDevice()
+    isConnected.value = true
     await refreshConfig()
   } catch (error) {
+    if (port.value) {
+      await disconnect({ preserveStatus: true })
+    }
     statusText.value = error.message ?? 'Не удалось подключить устройство'
+  } finally {
+    isConnecting.value = false
   }
 }
 
@@ -346,6 +355,24 @@ async function refreshConfig() {
 
     applyConfig(decodeConfig(frame.payload))
   })
+}
+
+async function verifyDevice() {
+  let frame
+
+  try {
+    frame = await sendCommand(COMMANDS.ping, new Uint8Array(), [COMMANDS.pong, COMMANDS.error])
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Таймаут ожидания ответа от устройства') {
+      throw new Error('Подключено не устройство OneShot или устройство не отвечает')
+    }
+
+    throw error
+  }
+
+  if (frame.command === COMMANDS.error || frame.payload[0] !== STATUS.ok) {
+    throw new Error('Подключено не устройство OneShot')
+  }
 }
 
 async function saveConfig() {
@@ -419,6 +446,7 @@ watch(
   <AppShell
     :is-busy="isBusy"
     :is-connected="isConnected"
+    :is-connecting="isConnecting"
     :status-text="statusText"
     title="Конфигуратор<br />для OneShot"
     :style="colorPreviewStyle"
