@@ -157,11 +157,13 @@ void updateButton() {
     lastState = state;
 
     if (state == LOW) {
+      sendButtonEvent(Serial, BUTTON_PRESSED);
       pressStart = now;
       longPressHandled = false;
     }
 
     if (state == HIGH) {
+      sendButtonEvent(Serial, BUTTON_RELEASED);
       if (!longPressHandled) {
         uint32_t pressDuration = now - pressStart;
 

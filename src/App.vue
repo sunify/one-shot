@@ -6,6 +6,7 @@ import AppShell from './components/layout/AppShell.vue'
 import PanelSection from './components/layout/PanelSection.vue'
 import {
   ACTION_TYPES,
+  BUTTON_EVENT_STATE,
   COMMANDS,
   DEVICE_TYPES,
   HOTKEY_SELECT_VALUE,
@@ -30,6 +31,7 @@ const isBusy = ref(false)
 const hasRememberedPort = ref(false)
 const hasAvailablePort = ref(false)
 const deviceType = ref(DEVICE_TYPES.oneShot)
+const isDevicePressed = ref(false)
 const statusText = ref('Устройство не подключено')
 const receiveBuffer = ref(new Uint8Array())
 const pendingResolver = ref(null)
@@ -269,11 +271,15 @@ async function readLoop() {
       for (const frame of parsed.frames) {
         if (frame.command === COMMANDS.config) {
           applyConfig(decodeConfig(frame.payload))
+        } else if (frame.command === COMMANDS.buttonEvent) {
+          isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
         } else if (frame.command === COMMANDS.error) {
           statusText.value = `Ошибка устройства: ${frame.payload[0]}`
         }
 
-        completePending(frame)
+        if (frame.command !== COMMANDS.buttonEvent) {
+          completePending(frame)
+        }
       }
     }
   } catch (error) {
@@ -292,12 +298,12 @@ async function connect() {
   try {
     isConnecting.value = true
 
-    if (isConnected.value) {
+    if (port.value || isConnected.value) {
       await disconnect()
     }
 
     port.value = await navigator.serial.requestPort()
-    await port.value.open({ baudRate: SERIAL_BAUD })
+    await openPortWithRetry(port.value)
     reader.value = port.value.readable.getReader()
     writer.value = port.value.writable.getWriter()
     receiveBuffer.value = new Uint8Array()
@@ -312,7 +318,7 @@ async function connect() {
     if (port.value) {
       await disconnect({ preserveStatus: true })
     }
-    statusText.value = error.message ?? 'Не удалось подключить устройство'
+    statusText.value = normalizeSerialError(error)
   } finally {
     isConnecting.value = false
   }
@@ -431,6 +437,59 @@ function handleInvalidHotkeyChar() {
   statusText.value = 'Пока поддерживаются латинские буквы, цифры и основные знаки'
 }
 
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+function isRetryableOpenError(error) {
+  const message = error?.message ?? ''
+
+  return (
+    message.includes("Failed to execute 'open' on 'SerialPort': Failed to open serial port.") ||
+    message.includes('The port is already open.')
+  )
+}
+
+async function openPortWithRetry(serialPort) {
+  const delays = [0, 200, 500]
+  let lastError = null
+
+  for (const waitMs of delays) {
+    if (waitMs > 0) {
+      await delay(waitMs)
+    }
+
+    try {
+      await serialPort.open({ baudRate: SERIAL_BAUD })
+      return
+    } catch (error) {
+      lastError = error
+
+      if (!isRetryableOpenError(error)) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError
+}
+
+function normalizeSerialError(error) {
+  const message = error?.message ?? ''
+
+  if (message.includes("Failed to execute 'open' on 'SerialPort': Failed to open serial port.")) {
+    return 'Не удалось открыть порт. Похоже, устройство уже занято другой вкладкой или приложением.'
+  }
+
+  if (message.includes('The port is already open.')) {
+    return 'Порт уже открыт. Закройте другое подключение к устройству и попробуйте снова.'
+  }
+
+  return message || 'Не удалось подключить устройство'
+}
+
 onBeforeUnmount(() => {
   if ('serial' in navigator) {
     navigator.serial.removeEventListener('connect', handleSerialConnect)
@@ -471,6 +530,7 @@ watch(
     :is-busy="isBusy"
     :is-connected="isConnected"
     :is-connecting="isConnecting"
+    :is-device-pressed="isDevicePressed"
     :status-text="statusText"
     :title="appTitle"
     :style="colorPreviewStyle"

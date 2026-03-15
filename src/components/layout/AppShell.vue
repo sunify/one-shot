@@ -1,7 +1,7 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
-defineProps({
+const props = defineProps({
   isBusy: {
     type: Boolean,
     default: false,
@@ -11,6 +11,10 @@ defineProps({
     default: false,
   },
   isConnecting: {
+    type: Boolean,
+    default: false,
+  },
+  isDevicePressed: {
     type: Boolean,
     default: false,
   },
@@ -30,6 +34,8 @@ function handleMouseDown() {
   buttonOffset.value = 12;
   pressTime = Date.now();
 }
+
+const visualButtonOffset = computed(() => (props.isDevicePressed ? 12 : buttonOffset.value))
 
 let timeout;
 window.addEventListener('mouseup', () => {
@@ -51,7 +57,7 @@ defineEmits(['connect'])
   <main class="shell">
     <section class="hero">
       <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5" viewBox="0 0 300 210" width="200">
-        <g style="user-select: none; cursor: pointer;" @mousedown="handleMouseDown" @mouseup="" :transform="`translate(0, ${buttonOffset})`">
+        <g style="user-select: none; cursor: pointer;" @mousedown="handleMouseDown" @mouseup="" :transform="`translate(0, ${visualButtonOffset})`">
           <path d="M51.7 59.5s-.2-26.8 0-34.2c0-1.2 5.8-7 6.6-7.2a3361 3361 0 0 1 80-16.6s7.4-.5 12.2-.5c4 0 10.3.5 10.3.5l11.2 2 67 14.6s2.7.7 3.7 1.5c1.5 1.2 5.6 4.6 5.6 5.7v34.2L167.4 76l-8.7.5-5.6.6h-8.2l-14.4-1z" style="fill:var(--button-color);stroke:#000;stroke-width:1.67px"/>
           <path d="M56.8 19.1s.3 2 1 2.6c1 .7 4.6 1.5 4.6 1.5l71.2 15s10 1 14.9 1 14.8-1 14.8-1l73.7-15s3.2-.9 4.1-1.5a7 7 0 0 0 1.6-2" style="fill:none;stroke:#000;stroke-width:1.25px"/>
           <path d="M52.2 25.8s1.7 1.2 2.6 1.6c1.2.5 3 1.4 4.6 1.8C72 32 131 43.9 131 43.9s12.4 1.6 18.4 1.6c5.6 0 17.4-1.6 17.4-1.6L240 29.2s4.4-1.2 5.6-1.8c.6-.3 2.1-2 2.1-2" style="fill:none;stroke:#000;stroke-width:1.25px"/>

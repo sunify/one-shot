@@ -27,6 +27,7 @@ enum Command : uint8_t {
   CMD_CONFIG = 0x81,
   CMD_ACK = 0x82,
   CMD_PONG = 0x84,
+  CMD_BUTTON_EVENT = 0x90,
   CMD_ERROR = 0xFF
 };
 
@@ -35,6 +36,11 @@ enum StatusCode : uint8_t {
   STATUS_BAD_PAYLOAD = 0x01,
   STATUS_BAD_CRC = 0x02,
   STATUS_BAD_COMMAND = 0x03
+};
+
+enum ButtonEventState : uint8_t {
+  BUTTON_RELEASED = 0x00,
+  BUTTON_PRESSED = 0x01
 };
 
 struct __attribute__((packed)) GestureAction {
@@ -94,6 +100,11 @@ inline void sendStatusFrame(Stream &serialPort, uint8_t cmd, uint8_t status) {
 inline void sendPingFrame(Stream &serialPort, uint8_t deviceType) {
   uint8_t payload[2] = {STATUS_OK, deviceType};
   sendFrame(serialPort, CMD_PONG, payload, sizeof(payload));
+}
+
+inline void sendButtonEvent(Stream &serialPort, uint8_t state) {
+  uint8_t payload[1] = {state};
+  sendFrame(serialPort, CMD_BUTTON_EVENT, payload, sizeof(payload));
 }
 
 inline void sendError(Stream &serialPort, uint8_t status) {

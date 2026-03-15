@@ -235,10 +235,12 @@ void updateButton() {
 
   if (state != newState) {
     if (newState == LOW) {
+      sendButtonEvent(SERIAL_PORT, BUTTON_PRESSED);
       if (!waitForDoubleTap) {
         pressTime = millis();
       }
     } else {
+      sendButtonEvent(SERIAL_PORT, BUTTON_RELEASED);
       if (timeSinceLastPress <= DOUBLE_TAP_INIT_TIME) {
         waitForDoubleTap = true;
       } else if (timeSinceLastPress < LONG_PRESS_TIME) {

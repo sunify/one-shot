@@ -10,7 +10,13 @@ export const COMMANDS = {
   config: 0x81,
   ack: 0x82,
   pong: 0x84,
+  buttonEvent: 0x90,
   error: 0xff,
+}
+
+export const BUTTON_EVENT_STATE = {
+  released: 0x00,
+  pressed: 0x01,
 }
 
 export const STATUS = {
