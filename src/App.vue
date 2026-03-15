@@ -57,9 +57,20 @@ const selectedColor = computed({
   },
 })
 
-const colorPreviewStyle = computed(() => ({
-  '--color-preview': `hsla(${(hsl.value.h) % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
-}))
+const colorPreviewStyle = computed(() => {
+  if (deviceType.value === DEVICE_TYPES.magicButton) {
+    return {
+      '--top-color': '#FFF',
+      '--top-shade-color': '#FFF',
+      '--button-color': '#5AB9CF'
+    };
+  }
+  return {
+    '--top-color': `hsla(${(hsl.value.h) % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
+    '--top-shade-color': '#cf00ff',
+    '--button-color': '#FFF'
+  };
+})
 
 const hsl = computed(() => {
   const r = form.red / 255
@@ -99,6 +110,9 @@ const hsl = computed(() => {
 })
 
 const supportsLighting = computed(() => deviceType.value === DEVICE_TYPES.oneShot)
+const appTitle = computed(() =>
+  isConnected.value ? `Конфигуратор<br />для ${getDeviceName(deviceType.value)}` : 'Конфигуратор',
+)
 
 const gestureFields = computed(() => [
   { key: 'singleTap', label: 'Одиночное нажатие' },
@@ -382,7 +396,7 @@ async function verifyDevice() {
 
   deviceType.value = frame.payload[1] ?? DEVICE_TYPES.oneShot
   form.deviceType = deviceType.value
-  statusText.value = `Подключено: ${getDeviceName(deviceType.value)}`
+  statusText.value = `Подключено`
 }
 
 async function saveConfig() {
@@ -458,7 +472,7 @@ watch(
     :is-connected="isConnected"
     :is-connecting="isConnecting"
     :status-text="statusText"
-    title="Конфигуратор<br />для OneShot"
+    :title="appTitle"
     :style="colorPreviewStyle"
     @connect="connect"
   >

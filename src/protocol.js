@@ -503,7 +503,7 @@ export function hotkeySelectLabel(code, modifiers = 0) {
 
 export function getDeviceName(deviceType) {
   if (deviceType === DEVICE_TYPES.magicButton) {
-    return 'Magic Button'
+    return 'Волшебной кнопки'
   }
 
   return 'One Shot'
