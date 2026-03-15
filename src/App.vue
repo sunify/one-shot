@@ -7,7 +7,7 @@ import PanelSection from './components/layout/PanelSection.vue'
 import {
   ACTION_TYPES,
   COMMANDS,
-  FUNCTION_KEY_OPTIONS,
+  DEVICE_TYPES,
   HOTKEY_SELECT_VALUE,
   MEDIA_KEY_OPTIONS,
   MODIFIER_OPTIONS,
@@ -16,6 +16,7 @@ import {
   buildFrame,
   decodeConfig,
   encodeConfig,
+  getDeviceName,
   parseFrames,
   toHexCode,
 } from './protocol'
@@ -28,12 +29,14 @@ const isConnecting = ref(false)
 const isBusy = ref(false)
 const hasRememberedPort = ref(false)
 const hasAvailablePort = ref(false)
+const deviceType = ref(DEVICE_TYPES.oneShot)
 const statusText = ref('Устройство не подключено')
 const receiveBuffer = ref(new Uint8Array())
 const pendingResolver = ref(null)
 const suppressColorWatch = ref(false)
 
 const form = reactive({
+  deviceType: DEVICE_TYPES.oneShot,
   singleTap: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
   doubleTap: { type: ACTION_TYPES.consumer, code: 0x00b5, modifiers: 0 },
   tripleTap: { type: ACTION_TYPES.consumer, code: 0x00b6, modifiers: 0 },
@@ -95,11 +98,16 @@ const hsl = computed(() => {
   }
 })
 
-const gestureFields = [
+const supportsLighting = computed(() => deviceType.value === DEVICE_TYPES.oneShot)
+
+const gestureFields = computed(() => [
   { key: 'singleTap', label: 'Одиночное нажатие' },
   { key: 'doubleTap', label: 'Двойное нажатие' },
-  { key: 'tripleTap', label: 'Тройное нажатие' },
-]
+  {
+    key: 'tripleTap',
+    label: deviceType.value === DEVICE_TYPES.magicButton ? 'Долгое нажатие' : 'Тройное нажатие',
+  },
+])
 
 const gestureOptions = [
   {
@@ -107,13 +115,6 @@ const gestureOptions = [
     options: MEDIA_KEY_OPTIONS.map((option) => ({
       label: `${option.label} · ${toHexCode(option.value)}`,
       value: `consumer:${option.value}`,
-    })),
-  },
-  {
-    label: 'Функциональные клавиши',
-    options: FUNCTION_KEY_OPTIONS.map((option) => ({
-      label: option.label,
-      value: `hotkey:${option.code}:0`,
     })),
   },
 ]
@@ -138,13 +139,18 @@ function cloneGesture(gesture) {
 
 function applyConfig(config) {
   suppressColorWatch.value = true
+  deviceType.value = config.deviceType ?? DEVICE_TYPES.oneShot
+  form.deviceType = deviceType.value
   form.singleTap = cloneGesture(config.singleTap)
   form.doubleTap = cloneGesture(config.doubleTap)
   form.tripleTap = cloneGesture(config.tripleTap)
-  form.red = config.red
-  form.green = config.green
-  form.blue = config.blue
-  form.breathingEnabled = config.breathingEnabled
+
+  if (deviceType.value === DEVICE_TYPES.oneShot) {
+    form.red = config.red
+    form.green = config.green
+    form.blue = config.blue
+    form.breathingEnabled = config.breathingEnabled
+  }
 }
 
 function completePending(frame) {
@@ -364,15 +370,19 @@ async function verifyDevice() {
     frame = await sendCommand(COMMANDS.ping, new Uint8Array(), [COMMANDS.pong, COMMANDS.error])
   } catch (error) {
     if (error instanceof Error && error.message === 'Таймаут ожидания ответа от устройства') {
-      throw new Error('Подключено не устройство OneShot или устройство не отвечает')
+      throw new Error('Подключено неподдерживаемое устройство или устройство не отвечает')
     }
 
     throw error
   }
 
   if (frame.command === COMMANDS.error || frame.payload[0] !== STATUS.ok) {
-    throw new Error('Подключено не устройство OneShot')
+    throw new Error('Подключено неподдерживаемое устройство')
   }
+
+  deviceType.value = frame.payload[1] ?? DEVICE_TYPES.oneShot
+  form.deviceType = deviceType.value
+  statusText.value = `Подключено: ${getDeviceName(deviceType.value)}`
 }
 
 async function saveConfig() {
@@ -435,7 +445,7 @@ watch(
       return
     }
 
-    if (isConnected.value && !isBusy.value) {
+    if (supportsLighting.value && isConnected.value && !isBusy.value) {
       saveConfig()
     }
   },
@@ -470,7 +480,7 @@ watch(
         </div>
       </PanelSection>
 
-      <PanelSection panel-class="accent-panel" title="Подсветка" :accent-style="colorPreviewStyle">
+      <PanelSection v-if="supportsLighting" panel-class="accent-panel" title="Подсветка" :accent-style="colorPreviewStyle">
         <ColorControl
           v-model="selectedColor"
           :breathing-enabled="form.breathingEnabled"

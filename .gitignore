@@ -1,7 +1,7 @@
 node_modules/
 dist/
 .vite/
-.arduino/build/
+.arduino
 *.hex
 *.bin
 *.elf

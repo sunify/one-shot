@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { hotkeyCharFromCode, hotkeyFromChar } from '../../protocol'
+import { HOTKEY_KEY_OPTIONS } from '../../protocol'
 
 const props = defineProps({
   gesture: {
@@ -17,7 +17,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:gesture', 'invalid-char'])
+const emit = defineEmits(['update:gesture'])
 
 const selectedModifiers = computed(() =>
   props.modifierOptions
@@ -79,23 +79,9 @@ function updateModifiers(optionValue, checked) {
 }
 
 function updateKey(value) {
-  let nextValue = value.split('').filter((char) => hotkeyFromChar(char, props.gesture.modifiers)).slice(-1)
-
-  if (!nextValue) {
-    return
-  }
-
-  const hotkey = hotkeyFromChar(nextValue, props.gesture.modifiers)
-
-  if (!hotkey) {
-    emit('invalid-char')
-    return
-  }
-
   emit('update:gesture', {
     ...props.gesture,
-    code: hotkey?.code ?? 0,
-    modifiers: hotkey?.modifiers ?? (props.gesture.modifiers & ~0x02),
+    code: Number(value),
   })
 }
 </script>
@@ -116,13 +102,15 @@ function updateKey(value) {
           </span>
         </label>
       </div>
-      <input
-        :value="hotkeyCharFromCode(gesture.code, gesture.modifiers)"
+      <select
+        :value="gesture.code"
         class="hotkey-char-input"
-        maxlength="2"
-        type="text"
-        @input="updateKey($event.target.value)"
-      />
+        @change="updateKey($event.target.value)"
+      >
+        <option v-for="option in HOTKEY_KEY_OPTIONS" :key="option.code" :value="option.code">
+          {{ option.label }}
+        </option>
+      </select>
     </div>
   </div>
 </template>

@@ -39,11 +39,7 @@ function hasConsumerOption(code) {
 
 function gestureSelectValue() {
   if (props.gesture.type === ACTION_TYPES.hotkey) {
-    if (isEditableCharHotkey(props.gesture)) {
-      return props.hotkeySelectValue
-    }
-
-    return `hotkey:${props.gesture.code}:${props.gesture.modifiers}`
+    return props.hotkeySelectValue
   }
 
   return `consumer:${props.gesture.code}`

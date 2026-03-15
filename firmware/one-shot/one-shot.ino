@@ -1,6 +1,7 @@
 #include <FastLED.h>
 #include <HID-Project.h>
 #include <EEPROM.h>
+#include "device_protocol.h"
 
 #define BTN_PIN 6
 
@@ -17,46 +18,11 @@ const uint16_t QUICK_TAP_MAX_PRESS = 100;
 const uint16_t LONG_PRESS = 600;
 const uint16_t DEBOUNCE = 10;
 
-const uint32_t SERIAL_BAUD = 115200;
-const uint8_t FRAME_MAGIC_1 = 0x4F;
-const uint8_t FRAME_MAGIC_2 = 0x53;
-const uint8_t PROTOCOL_VERSION = 1;
-const uint8_t ACTION_TYPE_CONSUMER = 0x01;
-const uint8_t ACTION_TYPE_HOTKEY = 0x02;
-const uint8_t MODIFIER_CTRL = 0x01;
-const uint8_t MODIFIER_SHIFT = 0x02;
-const uint8_t MODIFIER_ALT = 0x04;
-const uint8_t MODIFIER_GUI = 0x08;
-
-enum Command : uint8_t {
-  CMD_GET_CONFIG = 0x01,
-  CMD_SET_CONFIG = 0x02,
-  CMD_RESET_CONFIG = 0x03,
-  CMD_PING = 0x04,
-  CMD_CONFIG = 0x81,
-  CMD_ACK = 0x82,
-  CMD_PONG = 0x84,
-  CMD_ERROR = 0xFF
-};
-
-enum StatusCode : uint8_t {
-  STATUS_OK = 0x00,
-  STATUS_BAD_PAYLOAD = 0x01,
-  STATUS_BAD_CRC = 0x02,
-  STATUS_BAD_COMMAND = 0x03
-};
-
 struct __attribute__((packed)) DeviceConfig {
   uint8_t version;
-  uint8_t singleTapType;
-  uint16_t singleTapCode;
-  uint8_t singleTapModifiers;
-  uint8_t doubleTapType;
-  uint16_t doubleTapCode;
-  uint8_t doubleTapModifiers;
-  uint8_t tripleTapType;
-  uint16_t tripleTapCode;
-  uint8_t tripleTapModifiers;
+  GestureAction singleTap;
+  GestureAction doubleTap;
+  GestureAction tripleTap;
   uint8_t red;
   uint8_t green;
   uint8_t blue;
@@ -83,42 +49,15 @@ uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
 DeviceConfig defaultConfig() {
   DeviceConfig cfg;
   cfg.version = CONFIG_VERSION;
-  cfg.singleTapType = ACTION_TYPE_CONSUMER;
-  cfg.singleTapCode = MEDIA_PLAY_PAUSE;
-  cfg.singleTapModifiers = 0;
-  cfg.doubleTapType = ACTION_TYPE_CONSUMER;
-  cfg.doubleTapCode = MEDIA_NEXT;
-  cfg.doubleTapModifiers = 0;
-  cfg.tripleTapType = ACTION_TYPE_CONSUMER;
-  cfg.tripleTapCode = MEDIA_PREVIOUS;
-  cfg.tripleTapModifiers = 0;
+  cfg.singleTap = {ACTION_TYPE_CONSUMER, MEDIA_PLAY_PAUSE, 0};
+  cfg.doubleTap = {ACTION_TYPE_CONSUMER, MEDIA_NEXT, 0};
+  cfg.tripleTap = {ACTION_TYPE_CONSUMER, MEDIA_PREVIOUS, 0};
   cfg.red = 250;
   cfg.green = 255;
   cfg.blue = 210;
   cfg.breathingEnabled = 1;
   cfg.crc = 0;
   return cfg;
-}
-
-uint8_t crc8Update(uint8_t crc, uint8_t data) {
-  crc ^= data;
-  for (uint8_t i = 0; i < 8; i++) {
-    crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1);
-  }
-  return crc;
-}
-
-uint8_t computeConfigCrc(const DeviceConfig &cfg) {
-  const uint8_t *raw = reinterpret_cast<const uint8_t *>(&cfg);
-  uint8_t crc = 0;
-  for (uint8_t i = 0; i < sizeof(DeviceConfig) - 1; i++) {
-    crc = crc8Update(crc, raw[i]);
-  }
-  return crc;
-}
-
-bool isConfigValid(const DeviceConfig &cfg) {
-  return cfg.version == CONFIG_VERSION && cfg.crc == computeConfigCrc(cfg);
 }
 
 void applyConfig(const DeviceConfig &cfg) {
@@ -136,7 +75,7 @@ void loadConfig() {
   DeviceConfig stored;
   EEPROM.get(EEPROM_ADDRESS, stored);
 
-  if (!isConfigValid(stored)) {
+  if (!isConfigValid(stored, CONFIG_VERSION)) {
     stored = defaultConfig();
     persistConfig(stored);
     return;
@@ -150,37 +89,8 @@ void resetConfig() {
   persistConfig(cfg);
 }
 
-void sendFrame(uint8_t cmd, const uint8_t *payload, uint8_t payloadLen) {
-  uint8_t crc = 0;
-  crc = crc8Update(crc, PROTOCOL_VERSION);
-  crc = crc8Update(crc, cmd);
-  crc = crc8Update(crc, payloadLen);
-  for (uint8_t i = 0; i < payloadLen; i++) {
-    crc = crc8Update(crc, payload[i]);
-  }
-
-  Serial.write(FRAME_MAGIC_1);
-  Serial.write(FRAME_MAGIC_2);
-  Serial.write(PROTOCOL_VERSION);
-  Serial.write(cmd);
-  Serial.write(payloadLen);
-  if (payloadLen > 0) {
-    Serial.write(payload, payloadLen);
-  }
-  Serial.write(crc);
-}
-
 void sendConfigFrame() {
-  sendFrame(CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
-}
-
-void sendStatusFrame(uint8_t cmd, uint8_t status) {
-  uint8_t payload[1] = {status};
-  sendFrame(cmd, payload, sizeof(payload));
-}
-
-void sendError(uint8_t status) {
-  sendStatusFrame(CMD_ERROR, status);
+  sendFrame(Serial, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
 }
 
 void blinkFeedback(uint8_t count) {
@@ -225,21 +135,15 @@ void sendGestureAction(uint8_t actionType, uint16_t actionCode, uint8_t modifier
 }
 
 void sendAction(uint8_t taps) {
-  uint8_t actionType = config.tripleTapType;
-  uint16_t actionCode = config.tripleTapCode;
-  uint8_t modifiers = config.tripleTapModifiers;
+  GestureAction action = config.tripleTap;
 
   if (taps == 1) {
-    actionType = config.singleTapType;
-    actionCode = config.singleTapCode;
-    modifiers = config.singleTapModifiers;
+    action = config.singleTap;
   } else if (taps == 2) {
-    actionType = config.doubleTapType;
-    actionCode = config.doubleTapCode;
-    modifiers = config.doubleTapModifiers;
+    action = config.doubleTap;
   }
 
-  sendGestureAction(actionType, actionCode, modifiers);
+  sendGestureAction(action.type, action.code, action.modifiers);
 }
 
 void updateButton() {
@@ -316,61 +220,30 @@ void updateBaseColor() {
   baseColor = CRGB(config.red, config.green, config.blue);
 }
 
-bool readExact(uint8_t *buffer, uint8_t len) {
-  uint32_t startedAt = millis();
-  uint8_t offset = 0;
-
-  while (offset < len) {
-    if (Serial.available()) {
-      buffer[offset++] = Serial.read();
-      startedAt = millis();
-      continue;
-    }
-
-    if (millis() - startedAt > 100) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool isActionValid(uint8_t actionType, uint16_t actionCode, uint8_t modifiers) {
-  if (actionType == ACTION_TYPE_CONSUMER) {
-    return modifiers == 0;
-  }
-
-  if (actionType == ACTION_TYPE_HOTKEY) {
-    return actionCode <= 0xFF;
-  }
-
-  return false;
-}
-
 void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
   if (payloadLen != sizeof(DeviceConfig)) {
-    sendError(STATUS_BAD_PAYLOAD);
+    sendError(Serial, STATUS_BAD_PAYLOAD);
     return;
   }
 
   DeviceConfig nextConfig;
   memcpy(&nextConfig, payload, sizeof(DeviceConfig));
 
-  if (!isConfigValid(nextConfig)) {
-    sendError(STATUS_BAD_CRC);
+  if (!isConfigValid(nextConfig, CONFIG_VERSION)) {
+    sendError(Serial, STATUS_BAD_CRC);
     return;
   }
 
-  if (!isActionValid(nextConfig.singleTapType, nextConfig.singleTapCode, nextConfig.singleTapModifiers) ||
-      !isActionValid(nextConfig.doubleTapType, nextConfig.doubleTapCode, nextConfig.doubleTapModifiers) ||
-      !isActionValid(nextConfig.tripleTapType, nextConfig.tripleTapCode, nextConfig.tripleTapModifiers)) {
-    sendError(STATUS_BAD_PAYLOAD);
+  if (!isActionValid(nextConfig.singleTap) ||
+      !isActionValid(nextConfig.doubleTap) ||
+      !isActionValid(nextConfig.tripleTap)) {
+    sendError(Serial, STATUS_BAD_PAYLOAD);
     return;
   }
 
   persistConfig(nextConfig);
   updateBaseColor();
-  sendStatusFrame(CMD_ACK, STATUS_OK);
+  sendStatusFrame(Serial, CMD_ACK, STATUS_OK);
 }
 
 void handleSerial() {
@@ -384,8 +257,8 @@ void handleSerial() {
     }
 
     uint8_t header[3];
-    if (!readExact(header, sizeof(header))) {
-      sendError(STATUS_BAD_PAYLOAD);
+    if (!readExact(Serial, header, sizeof(header))) {
+      sendError(Serial, STATUS_BAD_PAYLOAD);
       return;
     }
 
@@ -395,18 +268,18 @@ void handleSerial() {
     uint8_t payload[sizeof(DeviceConfig)] = {0};
 
     if (payloadLen > sizeof(payload)) {
-      sendError(STATUS_BAD_PAYLOAD);
+      sendError(Serial, STATUS_BAD_PAYLOAD);
       return;
     }
 
-    if (!readExact(payload, payloadLen)) {
-      sendError(STATUS_BAD_PAYLOAD);
+    if (!readExact(Serial, payload, payloadLen)) {
+      sendError(Serial, STATUS_BAD_PAYLOAD);
       return;
     }
 
     uint8_t receivedCrc = 0;
-    if (!readExact(&receivedCrc, 1)) {
-      sendError(STATUS_BAD_PAYLOAD);
+    if (!readExact(Serial, &receivedCrc, 1)) {
+      sendError(Serial, STATUS_BAD_PAYLOAD);
       return;
     }
 
@@ -419,12 +292,12 @@ void handleSerial() {
     }
 
     if (version != PROTOCOL_VERSION) {
-      sendError(STATUS_BAD_COMMAND);
+      sendError(Serial, STATUS_BAD_COMMAND);
       continue;
     }
 
     if (receivedCrc != computedCrc) {
-      sendError(STATUS_BAD_CRC);
+      sendError(Serial, STATUS_BAD_CRC);
       continue;
     }
 
@@ -437,9 +310,9 @@ void handleSerial() {
       updateBaseColor();
       sendConfigFrame();
     } else if (cmd == CMD_PING) {
-      sendStatusFrame(CMD_PONG, STATUS_OK);
+      sendPingFrame(Serial, DEVICE_TYPE_ONE_SHOT);
     } else {
-      sendError(STATUS_BAD_COMMAND);
+      sendError(Serial, STATUS_BAD_COMMAND);
     }
   }
 }

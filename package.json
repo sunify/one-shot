@@ -8,9 +8,12 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "firmware:compile": "sh ./scripts/firmware.sh compile",
-    "firmware:export": "sh ./scripts/firmware.sh export",
-    "firmware:upload": "sh ./scripts/firmware.sh upload"
+    "firmware:compile": "sh ./scripts/firmware.sh compile one-shot",
+    "firmware:export": "sh ./scripts/firmware.sh export one-shot",
+    "firmware:upload": "sh ./scripts/firmware.sh upload one-shot",
+    "firmware:compile:magic": "sh ./scripts/firmware.sh compile magic-button",
+    "firmware:export:magic": "sh ./scripts/firmware.sh export magic-button",
+    "firmware:upload:magic": "sh ./scripts/firmware.sh upload magic-button"
   },
   "author": "",
   "license": "ISC",

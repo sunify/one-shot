@@ -25,6 +25,11 @@ export const ACTION_TYPES = {
   hotkey: 0x02,
 }
 
+export const DEVICE_TYPES = {
+  oneShot: 0x01,
+  magicButton: 0x02,
+}
+
 export const MODIFIERS = {
   ctrl: 0x01,
   shift: 0x02,
@@ -59,6 +64,21 @@ export const FUNCTION_KEY_OPTIONS = [
   { label: 'F13', code: 0x68 },
   { label: 'F14', code: 0x69 },
   { label: 'F15', code: 0x6a },
+]
+
+export const HOTKEY_KEY_OPTIONS = [
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((label, index) => ({
+    label,
+    code: 0x04 + index,
+  })),
+  ...'1234567890'.split('').map((label, index) => ({
+    label,
+    code: 0x1e + index,
+  })),
+  { label: 'Esc', code: 0x29 },
+  { label: 'Enter', code: 0x28 },
+  { label: 'Backspace', code: 0x2a },
+  ...FUNCTION_KEY_OPTIONS,
 ]
 
 export const HOTKEY_SELECT_VALUE = 'hotkey'
@@ -303,6 +323,19 @@ function readGesture(view, offset) {
 }
 
 export function encodeConfig(config) {
+  if (config.deviceType === DEVICE_TYPES.magicButton) {
+    const payload = new Uint8Array(13)
+    const view = new DataView(payload.buffer)
+
+    payload[0] = 1
+    writeGesture(view, 1, config.singleTap)
+    writeGesture(view, 5, config.doubleTap)
+    writeGesture(view, 9, config.tripleTap)
+
+    const crc = computeCrc(payload)
+    return new Uint8Array([...payload, crc])
+  }
+
   const payload = new Uint8Array(17)
   const view = new DataView(payload.buffer)
 
@@ -320,6 +353,25 @@ export function encodeConfig(config) {
 }
 
 export function decodeConfig(payload) {
+  if (payload.length === 14) {
+    const raw = payload.slice(0, 13)
+    const storedCrc = payload[13]
+    const computed = computeCrc(raw)
+
+    if (storedCrc !== computed) {
+      throw new Error('Config CRC mismatch')
+    }
+
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
+    return {
+      version: raw[0],
+      deviceType: DEVICE_TYPES.magicButton,
+      singleTap: readGesture(view, 1),
+      doubleTap: readGesture(view, 5),
+      tripleTap: readGesture(view, 9),
+    }
+  }
+
   if (payload.length !== 18) {
     throw new Error(`Unexpected config payload size: ${payload.length}`)
   }
@@ -335,6 +387,7 @@ export function decodeConfig(payload) {
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
   return {
     version: raw[0],
+    deviceType: DEVICE_TYPES.oneShot,
     singleTap: readGesture(view, 1),
     doubleTap: readGesture(view, 5),
     tripleTap: readGesture(view, 9),
@@ -436,5 +489,22 @@ export function hotkeyFromChar(value, modifiers = 0) {
 }
 
 export function isEditableCharHotkey(gesture) {
-  return gesture?.type === ACTION_TYPES.hotkey && hotkeyCharFromCode(gesture.code, gesture.modifiers) !== ''
+  return gesture?.type === ACTION_TYPES.hotkey
+}
+
+export function hotkeySelectLabel(code, modifiers = 0) {
+  const specialOption = HOTKEY_KEY_OPTIONS.find((option) => option.code === code)
+  if (specialOption) {
+    return specialOption.label
+  }
+
+  return hotkeyCharFromCode(code, modifiers) || ''
+}
+
+export function getDeviceName(deviceType) {
+  if (deviceType === DEVICE_TYPES.magicButton) {
+    return 'Magic Button'
+  }
+
+  return 'One Shot'
 }
