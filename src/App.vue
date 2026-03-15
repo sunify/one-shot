@@ -53,7 +53,7 @@ const selectedColor = computed({
 })
 
 const colorPreviewStyle = computed(() => ({
-  '--color-preview': `hsla(${hsl.value.h}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l)}%, ${hsl.value.s / 100})`,
+  '--color-preview': `hsla(${(hsl.value.h) % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
 }))
 
 const hsl = computed(() => {
