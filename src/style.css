@@ -151,6 +151,13 @@ h2 {
   color: #111111;
 }
 
+.color-meta {
+  margin: 0;
+  color: #666666;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+
 .toggle-field input {
   width: auto;
   min-height: auto;
