@@ -235,38 +235,12 @@ const CHAR_TO_HOTKEY = {
   8: { code: 0x25, shift: false },
   9: { code: 0x26, shift: false },
   0: { code: 0x27, shift: false },
-  '!': { code: 0x1e, shift: true },
-  '@': { code: 0x1f, shift: true },
-  '#': { code: 0x20, shift: true },
-  $: { code: 0x21, shift: true },
-  '%': { code: 0x22, shift: true },
-  '^': { code: 0x23, shift: true },
-  '&': { code: 0x24, shift: true },
-  '*': { code: 0x25, shift: true },
-  '(': { code: 0x26, shift: true },
-  ')': { code: 0x27, shift: true },
-  '-': { code: 0x2d, shift: false },
-  _: { code: 0x2d, shift: true },
-  '=': { code: 0x2e, shift: false },
-  '+': { code: 0x2e, shift: true },
   '[': { code: 0x2f, shift: false },
-  '{': { code: 0x2f, shift: true },
   ']': { code: 0x30, shift: false },
-  '}': { code: 0x30, shift: true },
   '\\': { code: 0x31, shift: false },
-  '|': { code: 0x31, shift: true },
   ';': { code: 0x33, shift: false },
-  ':': { code: 0x33, shift: true },
   "'": { code: 0x34, shift: false },
-  '"': { code: 0x34, shift: true },
-  '`': { code: 0x35, shift: false },
-  '~': { code: 0x35, shift: true },
-  ',': { code: 0x36, shift: false },
-  '<': { code: 0x36, shift: true },
-  '.': { code: 0x37, shift: false },
-  '>': { code: 0x37, shift: true },
   '/': { code: 0x38, shift: false },
-  '?': { code: 0x38, shift: true },
   ' ': { code: 0x2c, shift: false },
 }
 
@@ -441,22 +415,13 @@ export function hotkeyCharFromCode(code, modifiers = 0) {
     return shiftEnabled ? char.toUpperCase() : char
   }
 
-  if (code >= 0x1e && code <= 0x27) {
-    const digit = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'][code - 0x1e]
-    if (!shiftEnabled) {
-      return digit
-    }
-
-    return ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')'][code - 0x1e]
-  }
-
   const label = HID_LABELS[code]
   return label && label.length === 1 ? label : ''
 }
 
 export function hotkeyFromChar(value, modifiers = 0) {
   if (!value) {
-    return { code: 0, modifiers: modifiers & ~MODIFIERS.shift }
+    return { code: 0, modifiers }
   }
 
   const hotkey = CHAR_TO_HOTKEY[value]
@@ -464,10 +429,9 @@ export function hotkeyFromChar(value, modifiers = 0) {
     return null
   }
 
-  const nextModifiers = hotkey.shift ? modifiers | MODIFIERS.shift : modifiers & ~MODIFIERS.shift
   return {
     code: hotkey.code,
-    modifiers: nextModifiers,
+    modifiers,
   }
 }
 

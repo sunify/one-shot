@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ColorControl from './components/controls/ColorControl.vue'
 import GestureField from './components/controls/GestureField.vue'
 import AppShell from './components/layout/AppShell.vue'
@@ -30,6 +30,7 @@ const hasAvailablePort = ref(false)
 const statusText = ref('Устройство не подключено')
 const receiveBuffer = ref(new Uint8Array())
 const pendingResolver = ref(null)
+const suppressColorWatch = ref(false)
 
 const form = reactive({
   singleTap: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
@@ -135,6 +136,7 @@ function cloneGesture(gesture) {
 }
 
 function applyConfig(config) {
+  suppressColorWatch.value = true
   form.singleTap = cloneGesture(config.singleTap)
   form.doubleTap = cloneGesture(config.doubleTap)
   form.tripleTap = cloneGesture(config.tripleTap)
@@ -397,6 +399,20 @@ onMounted(async () => {
   navigator.serial.addEventListener('disconnect', handleSerialDisconnect)
   await refreshKnownPorts()
 })
+
+watch(
+  () => [form.red, form.green, form.blue, form.breathingEnabled],
+  () => {
+    if (suppressColorWatch.value) {
+      suppressColorWatch.value = false
+      return
+    }
+
+    if (isConnected.value && !isBusy.value) {
+      saveConfig()
+    }
+  },
+)
 </script>
 
 <template>
