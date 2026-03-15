@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { formatHotkey, hotkeyCharFromCode, hotkeyCodeFromChar } from '../../protocol'
+import { hotkeyCharFromCode, hotkeyFromChar } from '../../protocol'
 
 const props = defineProps({
   gesture: {
@@ -79,18 +79,23 @@ function updateModifiers(optionValue, checked) {
 }
 
 function updateKey(value) {
-  console.log(value);
-  const nextValue = value.slice(-1)
-  const code = hotkeyCodeFromChar(nextValue)
+  let nextValue = value.split('').filter((char) => hotkeyFromChar(char, props.gesture.modifiers)).slice(-1)
 
-  if (nextValue && code === 0) {
+  if (!nextValue) {
+    return
+  }
+
+  const hotkey = hotkeyFromChar(nextValue, props.gesture.modifiers)
+
+  if (!hotkey) {
     emit('invalid-char')
     return
   }
 
   emit('update:gesture', {
     ...props.gesture,
-    code,
+    code: hotkey?.code ?? 0,
+    modifiers: hotkey?.modifiers ?? (props.gesture.modifiers & ~0x02),
   })
 }
 </script>
@@ -112,7 +117,7 @@ function updateKey(value) {
         </label>
       </div>
       <input
-        :value="hotkeyCharFromCode(gesture.code)"
+        :value="hotkeyCharFromCode(gesture.code, gesture.modifiers)"
         class="hotkey-char-input"
         maxlength="2"
         type="text"

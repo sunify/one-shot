@@ -172,43 +172,128 @@ const HID_LABELS = Object.fromEntries(
   Object.entries(CODE_TO_HID).map(([code, hid]) => [hid, KEY_ALIASES[code] ?? code.replace(/^Key|^Digit/, '')]),
 )
 
-const CHAR_TO_HID = {
-  a: 0x04,
-  b: 0x05,
-  c: 0x06,
-  d: 0x07,
-  e: 0x08,
-  f: 0x09,
-  g: 0x0a,
-  h: 0x0b,
-  i: 0x0c,
-  j: 0x0d,
-  k: 0x0e,
-  l: 0x0f,
-  m: 0x10,
-  n: 0x11,
-  o: 0x12,
-  p: 0x13,
-  q: 0x14,
-  r: 0x15,
-  s: 0x16,
-  t: 0x17,
-  u: 0x18,
-  v: 0x19,
-  w: 0x1a,
-  x: 0x1b,
-  y: 0x1c,
-  z: 0x1d,
-  1: 0x1e,
-  2: 0x1f,
-  3: 0x20,
-  4: 0x21,
-  5: 0x22,
-  6: 0x23,
-  7: 0x24,
-  8: 0x25,
-  9: 0x26,
-  0: 0x27,
+const CHAR_TO_HOTKEY = {
+  a: { code: 0x04, shift: false },
+  b: { code: 0x05, shift: false },
+  c: { code: 0x06, shift: false },
+  d: { code: 0x07, shift: false },
+  e: { code: 0x08, shift: false },
+  f: { code: 0x09, shift: false },
+  g: { code: 0x0a, shift: false },
+  h: { code: 0x0b, shift: false },
+  i: { code: 0x0c, shift: false },
+  j: { code: 0x0d, shift: false },
+  k: { code: 0x0e, shift: false },
+  l: { code: 0x0f, shift: false },
+  m: { code: 0x10, shift: false },
+  n: { code: 0x11, shift: false },
+  o: { code: 0x12, shift: false },
+  p: { code: 0x13, shift: false },
+  q: { code: 0x14, shift: false },
+  r: { code: 0x15, shift: false },
+  s: { code: 0x16, shift: false },
+  t: { code: 0x17, shift: false },
+  u: { code: 0x18, shift: false },
+  v: { code: 0x19, shift: false },
+  w: { code: 0x1a, shift: false },
+  x: { code: 0x1b, shift: false },
+  y: { code: 0x1c, shift: false },
+  z: { code: 0x1d, shift: false },
+  A: { code: 0x04, shift: true },
+  B: { code: 0x05, shift: true },
+  C: { code: 0x06, shift: true },
+  D: { code: 0x07, shift: true },
+  E: { code: 0x08, shift: true },
+  F: { code: 0x09, shift: true },
+  G: { code: 0x0a, shift: true },
+  H: { code: 0x0b, shift: true },
+  I: { code: 0x0c, shift: true },
+  J: { code: 0x0d, shift: true },
+  K: { code: 0x0e, shift: true },
+  L: { code: 0x0f, shift: true },
+  M: { code: 0x10, shift: true },
+  N: { code: 0x11, shift: true },
+  O: { code: 0x12, shift: true },
+  P: { code: 0x13, shift: true },
+  Q: { code: 0x14, shift: true },
+  R: { code: 0x15, shift: true },
+  S: { code: 0x16, shift: true },
+  T: { code: 0x17, shift: true },
+  U: { code: 0x18, shift: true },
+  V: { code: 0x19, shift: true },
+  W: { code: 0x1a, shift: true },
+  X: { code: 0x1b, shift: true },
+  Y: { code: 0x1c, shift: true },
+  Z: { code: 0x1d, shift: true },
+  1: { code: 0x1e, shift: false },
+  2: { code: 0x1f, shift: false },
+  3: { code: 0x20, shift: false },
+  4: { code: 0x21, shift: false },
+  5: { code: 0x22, shift: false },
+  6: { code: 0x23, shift: false },
+  7: { code: 0x24, shift: false },
+  8: { code: 0x25, shift: false },
+  9: { code: 0x26, shift: false },
+  0: { code: 0x27, shift: false },
+  '!': { code: 0x1e, shift: true },
+  '@': { code: 0x1f, shift: true },
+  '#': { code: 0x20, shift: true },
+  $: { code: 0x21, shift: true },
+  '%': { code: 0x22, shift: true },
+  '^': { code: 0x23, shift: true },
+  '&': { code: 0x24, shift: true },
+  '*': { code: 0x25, shift: true },
+  '(': { code: 0x26, shift: true },
+  ')': { code: 0x27, shift: true },
+  '-': { code: 0x2d, shift: false },
+  _: { code: 0x2d, shift: true },
+  '=': { code: 0x2e, shift: false },
+  '+': { code: 0x2e, shift: true },
+  '[': { code: 0x2f, shift: false },
+  '{': { code: 0x2f, shift: true },
+  ']': { code: 0x30, shift: false },
+  '}': { code: 0x30, shift: true },
+  '\\': { code: 0x31, shift: false },
+  '|': { code: 0x31, shift: true },
+  ';': { code: 0x33, shift: false },
+  ':': { code: 0x33, shift: true },
+  "'": { code: 0x34, shift: false },
+  '"': { code: 0x34, shift: true },
+  '`': { code: 0x35, shift: false },
+  '~': { code: 0x35, shift: true },
+  ',': { code: 0x36, shift: false },
+  '<': { code: 0x36, shift: true },
+  '.': { code: 0x37, shift: false },
+  '>': { code: 0x37, shift: true },
+  '/': { code: 0x38, shift: false },
+  '?': { code: 0x38, shift: true },
+  ' ': { code: 0x2c, shift: false },
+}
+
+const HOTKEY_DISPLAY_BY_CODE = {
+  '44:0': ' ',
+  '45:0': '-',
+  '45:1': '_',
+  '46:0': '=',
+  '46:1': '+',
+  '47:0': '[',
+  '47:1': '{',
+  '48:0': ']',
+  '48:1': '}',
+  '49:0': '\\',
+  '49:1': '|',
+  '51:0': ';',
+  '51:1': ':',
+  '52:0': "'",
+  '52:1': '"',
+  '53:0': '`',
+  '53:1': '~',
+  '54:0': ',',
+  '54:1': '<',
+  '55:0': '.',
+  '55:1': '>',
+  '56:0': '/',
+  '56:1': '?',
 }
 
 export function crc8Update(crc, data) {
@@ -340,23 +425,52 @@ export function formatHotkey(gesture) {
   if (gesture.modifiers & MODIFIERS.alt) parts.push('Alt')
   if (gesture.modifiers & MODIFIERS.meta) parts.push('Meta')
 
-  parts.push(KEY_ALIASES[HID_LABELS[gesture.code]] ?? HID_LABELS[gesture.code] ?? toHexCode(gesture.code))
+  parts.push(hotkeyCharFromCode(gesture.code, gesture.modifiers) || KEY_ALIASES[HID_LABELS[gesture.code]] || HID_LABELS[gesture.code] || toHexCode(gesture.code))
   return parts.join('+')
 }
 
-export function hotkeyCharFromCode(code) {
+export function hotkeyCharFromCode(code, modifiers = 0) {
+  const shiftEnabled = (modifiers & MODIFIERS.shift) !== 0
+  const special = HOTKEY_DISPLAY_BY_CODE[`${code}:${shiftEnabled ? 1 : 0}`]
+  if (special) {
+    return special
+  }
+
+  if (code >= 0x04 && code <= 0x1d) {
+    const char = String.fromCharCode(97 + (code - 0x04))
+    return shiftEnabled ? char.toUpperCase() : char
+  }
+
+  if (code >= 0x1e && code <= 0x27) {
+    const digit = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'][code - 0x1e]
+    if (!shiftEnabled) {
+      return digit
+    }
+
+    return ['!', '@', '#', '$', '%', '^', '&', '*', '(', ')'][code - 0x1e]
+  }
+
   const label = HID_LABELS[code]
   return label && label.length === 1 ? label : ''
 }
 
-export function hotkeyCodeFromChar(value) {
+export function hotkeyFromChar(value, modifiers = 0) {
   if (!value) {
-    return 0
+    return { code: 0, modifiers: modifiers & ~MODIFIERS.shift }
   }
 
-  return CHAR_TO_HID[value.toLowerCase()] ?? 0
+  const hotkey = CHAR_TO_HOTKEY[value]
+  if (!hotkey) {
+    return null
+  }
+
+  const nextModifiers = hotkey.shift ? modifiers | MODIFIERS.shift : modifiers & ~MODIFIERS.shift
+  return {
+    code: hotkey.code,
+    modifiers: nextModifiers,
+  }
 }
 
 export function isEditableCharHotkey(gesture) {
-  return gesture?.type === ACTION_TYPES.hotkey && hotkeyCharFromCode(gesture.code) !== ''
+  return gesture?.type === ACTION_TYPES.hotkey && hotkeyCharFromCode(gesture.code, gesture.modifiers) !== ''
 }

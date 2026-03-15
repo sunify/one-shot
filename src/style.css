@@ -309,28 +309,3 @@ h2 {
 .footer-actions {
   justify-content: flex-start;
 }
-
-@media (max-width: 780px) {
-  .shell {
-    width: min(100vw - 20px, 720px);
-    padding: 20px 0 40px 12px;
-  }
-
-  .grid,
-  .color-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .hotkey-row {
-    flex-wrap: wrap;
-  }
-
-  .panel-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .footer-actions {
-    justify-content: flex-start;
-  }
-}

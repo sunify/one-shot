@@ -1,5 +1,5 @@
 <script setup>
-import { ACTION_TYPES, isEditableCharHotkey } from '../../protocol'
+import { ACTION_TYPES, isEditableCharHotkey, toHexCode } from '../../protocol'
 import HotkeyEditor from './HotkeyEditor.vue'
 
 const props = defineProps({
@@ -76,6 +76,12 @@ function updateGesture(value) {
     <span>{{ label }}</span>
     <select :value="gestureSelectValue()" @change="updateGesture($event.target.value)">
       <option :value="hotkeySelectValue">Горячая клавиша</option>
+      <option
+        v-if="gesture.type === ACTION_TYPES.consumer"
+        :value="`consumer:${gesture.code}`"
+      >
+        Неподдерживаемое действие · {{ toHexCode(gesture.code) }}
+      </option>
       <optgroup v-for="group in gestureOptions" :key="group.label" :label="group.label">
         <option v-for="option in group.options" :key="option.value" :value="option.value">
           {{ option.label }}

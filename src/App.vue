@@ -338,7 +338,7 @@ function updateGesture(field, gesture) {
 }
 
 function handleInvalidHotkeyChar() {
-  statusText.value = 'Пока поддерживаются только латинские буквы и цифры'
+  statusText.value = 'Пока поддерживаются латинские буквы, цифры и основные знаки'
 }
 
 onBeforeUnmount(() => {
