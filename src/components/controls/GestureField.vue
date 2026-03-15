@@ -31,6 +31,12 @@ const props = defineProps({
 
 const emit = defineEmits(['update:gesture', 'invalid-hotkey-char'])
 
+function hasConsumerOption(code) {
+  return props.gestureOptions.some((group) =>
+    group.options.some((option) => option.value === `consumer:${code}`),
+  )
+}
+
 function gestureSelectValue() {
   if (props.gesture.type === ACTION_TYPES.hotkey) {
     if (isEditableCharHotkey(props.gesture)) {
@@ -77,7 +83,7 @@ function updateGesture(value) {
     <select :value="gestureSelectValue()" @change="updateGesture($event.target.value)">
       <option :value="hotkeySelectValue">Горячая клавиша</option>
       <option
-        v-if="gesture.type === ACTION_TYPES.consumer"
+        v-if="gesture.type === ACTION_TYPES.consumer && !hasConsumerOption(gesture.code)"
         :value="`consumer:${gesture.code}`"
       >
         Неподдерживаемое действие · {{ toHexCode(gesture.code) }}
