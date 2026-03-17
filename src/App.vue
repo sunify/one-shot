@@ -1,130 +1,48 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import throttle from 'lodash-es/throttle'
 import ColorControl from './components/controls/ColorControl.vue'
 import GestureField from './components/controls/GestureField.vue'
 import AppShell from './components/layout/AppShell.vue'
 import PanelSection from './components/layout/PanelSection.vue'
-import {
-  ACTION_TYPES,
-  BUTTON_EVENT_STATE,
-  COMMANDS,
-  DEVICE_TYPES,
-  HOTKEY_SELECT_VALUE,
-  MEDIA_KEY_OPTIONS,
-  MODIFIER_OPTIONS,
-  SERIAL_BAUD,
-  STATUS,
-  buildFrame,
-  decodeConfig,
-  encodeConfig,
-  getDeviceName,
-  parseFrames,
-  toHexCode,
-} from './protocol'
+import { useConfiguratorState } from './composables/useConfiguratorState'
+import { useDeviceConnection } from './composables/useDeviceConnection'
+import { useLightingPreview } from './composables/useLightingPreview'
+import { HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS, getDeviceName } from './protocol'
 
-const port = ref(null)
-const reader = ref(null)
-const writer = ref(null)
-const isConnected = ref(false)
-const isConnecting = ref(false)
-const isBusy = ref(false)
-const hasRememberedPort = ref(false)
-const hasAvailablePort = ref(false)
-const deviceType = ref(DEVICE_TYPES.oneShot)
-const isDevicePressed = ref(false)
-const statusText = ref('Устройство не подключено')
-const receiveBuffer = ref(new Uint8Array())
-const pendingResolver = ref(null)
-const suppressAutoSave = ref(false)
+const {
+  applyConfig,
+  deviceType,
+  form,
+  gestureFields,
+  isDevicePressed,
+  selectedColor,
+  supportsLighting,
+  suppressAutoSave,
+  updateGesture,
+} = useConfiguratorState()
 
-const form = reactive({
-  deviceType: DEVICE_TYPES.oneShot,
-  singleTap: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
-  doubleTap: { type: ACTION_TYPES.consumer, code: 0x00b5, modifiers: 0 },
-  tripleTap: { type: ACTION_TYPES.consumer, code: 0x00b6, modifiers: 0 },
-  red: 250,
-  green: 255,
-  blue: 210,
-  breathingEnabled: true,
+const { colorPreviewStyle } = useLightingPreview(form, deviceType)
+
+const {
+  connect,
+  disconnect,
+  isBusy,
+  isConnected,
+  isConnecting,
+  resetConfig,
+  saveConfig,
+  statusText,
+} = useDeviceConnection({
+  applyConfig,
+  deviceType,
+  form,
+  isDevicePressed,
 })
 
-const selectedColor = computed({
-  get() {
-    return `#${[form.red, form.green, form.blue].map((value) => value.toString(16).padStart(2, '0')).join('')}`
-  },
-  set(value) {
-    form.red = Number.parseInt(value.slice(1, 3), 16)
-    form.green = Number.parseInt(value.slice(3, 5), 16)
-    form.blue = Number.parseInt(value.slice(5, 7), 16)
-  },
-})
-
-const colorPreviewStyle = computed(() => {
-  if (deviceType.value === DEVICE_TYPES.magicButton) {
-    return {
-      '--top-color': '#FFF',
-      '--top-shade-color': '#FFF',
-      '--button-color': '#5AB9CF'
-    };
-  }
-  return {
-    '--top-color': `hsla(${(hsl.value.h) % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
-    '--top-shade-color': '#cf00ff',
-    '--button-color': '#FFF'
-  };
-})
-
-const hsl = computed(() => {
-  const r = form.red / 255
-  const g = form.green / 255
-  const b = form.blue / 255
-
-  const max = Math.max(r, g, b)
-  const min = Math.min(r, g, b)
-  const delta = max - min
-
-  let hue = 0
-  const lightness = (max + min) / 2
-
-  if (delta !== 0) {
-    if (max === r) {
-      hue = ((g - b) / delta) % 6
-    } else if (max === g) {
-      hue = (b - r) / delta + 2
-    } else {
-      hue = (r - g) / delta + 4
-    }
-  }
-
-  hue = Math.round(hue * 60)
-  if (hue < 0) {
-    hue += 360
-  }
-
-  const saturation =
-    delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1))
-
-  return {
-    h: hue,
-    s: Math.round(saturation * 100),
-    l: Math.round(lightness * 100),
-  }
-})
-
-const supportsLighting = computed(() => deviceType.value === DEVICE_TYPES.oneShot)
 const appTitle = computed(() =>
   isConnected.value ? `Конфигуратор<br />для ${getDeviceName(deviceType.value)}` : 'Конфигуратор',
 )
-
-const gestureFields = computed(() => [
-  { key: 'singleTap', label: 'Одиночное нажатие' },
-  { key: 'doubleTap', label: 'Двойное нажатие' },
-  {
-    key: 'tripleTap',
-    label: deviceType.value === DEVICE_TYPES.magicButton ? 'Долгое нажатие' : 'Тройное нажатие',
-  },
-])
 
 const gestureOptions = [
   {
@@ -138,286 +56,6 @@ const gestureOptions = [
 
 const isMacLike = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
 const modifierOptions = MODIFIER_OPTIONS
-
-function mergeBuffers(current, chunk) {
-  const merged = new Uint8Array(current.length + chunk.length)
-  merged.set(current)
-  merged.set(chunk, current.length)
-  return merged
-}
-
-function cloneGesture(gesture) {
-  return {
-    type: gesture.type,
-    code: gesture.code,
-    modifiers: gesture.modifiers,
-  }
-}
-
-function applyConfig(config) {
-  suppressAutoSave.value = true
-  deviceType.value = config.deviceType ?? DEVICE_TYPES.oneShot
-  form.deviceType = deviceType.value
-  form.singleTap = cloneGesture(config.singleTap)
-  form.doubleTap = cloneGesture(config.doubleTap)
-  form.tripleTap = cloneGesture(config.tripleTap)
-
-  if (deviceType.value === DEVICE_TYPES.oneShot) {
-    form.red = config.red
-    form.green = config.green
-    form.blue = config.blue
-    form.breathingEnabled = config.breathingEnabled
-  }
-}
-
-function completePending(frame) {
-  if (!pendingResolver.value) {
-    return
-  }
-
-  const resolve = pendingResolver.value
-  pendingResolver.value = null
-  resolve(frame)
-}
-
-function getPortSignature(serialPort) {
-  if (!serialPort?.getInfo) {
-    return ''
-  }
-
-  const info = serialPort.getInfo()
-  return [info.usbVendorId ?? 'na', info.usbProductId ?? 'na'].join(':')
-}
-
-function isSamePort(a, b) {
-  if (!a || !b) {
-    return false
-  }
-
-  return a === b || getPortSignature(a) === getPortSignature(b)
-}
-
-async function refreshKnownPorts() {
-  if (!('serial' in navigator)) {
-    hasAvailablePort.value = false
-    hasRememberedPort.value = false
-    return
-  }
-
-  const ports = await navigator.serial.getPorts()
-  hasAvailablePort.value = ports.length > 0
-
-  if (port.value) {
-    hasRememberedPort.value = ports.some((knownPort) => isSamePort(knownPort, port.value))
-  } else {
-    hasRememberedPort.value = hasAvailablePort.value
-  }
-
-  if (!isConnected.value) {
-    if (hasRememberedPort.value) {
-      statusText.value = ''
-    } else {
-      statusText.value = 'Устройство не подключено'
-    }
-  }
-}
-
-async function handleSerialConnect() {
-  await refreshKnownPorts()
-}
-
-async function handleSerialDisconnect(event) {
-  const disconnectedPort = event.target
-
-  if (port.value && isSamePort(disconnectedPort, port.value)) {
-    statusText.value = 'Устройство отключено'
-    await disconnect({ preserveStatus: true })
-  }
-
-  await refreshKnownPorts()
-}
-
-async function waitForFrame(expectedCommands) {
-  return new Promise((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => {
-      pendingResolver.value = null
-      reject(new Error('Таймаут ожидания ответа от устройства'))
-    }, 1500)
-
-    pendingResolver.value = (frame) => {
-      window.clearTimeout(timeoutId)
-
-      if (!expectedCommands.includes(frame.command)) {
-        reject(new Error(`Неожиданный ответ 0x${frame.command.toString(16)}`))
-        return
-      }
-
-      resolve(frame)
-    }
-  })
-}
-
-async function readLoop() {
-  try {
-    while (port.value?.readable) {
-      const result = await reader.value.read()
-      if (result.done) {
-        break
-      }
-
-      receiveBuffer.value = mergeBuffers(receiveBuffer.value, result.value)
-      const parsed = parseFrames(receiveBuffer.value)
-      receiveBuffer.value = parsed.rest
-
-      for (const frame of parsed.frames) {
-        if (frame.command === COMMANDS.config) {
-          applyConfig(decodeConfig(frame.payload))
-        } else if (frame.command === COMMANDS.buttonEvent) {
-          isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
-        } else if (frame.command === COMMANDS.error) {
-          statusText.value = `Ошибка устройства: ${frame.payload[0]}`
-        }
-
-        if (frame.command !== COMMANDS.buttonEvent) {
-          completePending(frame)
-        }
-      }
-    }
-  } catch (error) {
-    statusText.value = error.message
-  } finally {
-    isConnected.value = false
-  }
-}
-
-async function connect() {
-  if (!('serial' in navigator)) {
-    statusText.value = 'Конфигуратор работает только в Chromium-браузерах'
-    return
-  }
-
-  try {
-    isConnecting.value = true
-
-    if (port.value || isConnected.value) {
-      await disconnect()
-    }
-
-    port.value = await navigator.serial.requestPort()
-    await openPortWithRetry(port.value)
-    reader.value = port.value.readable.getReader()
-    writer.value = port.value.writable.getWriter()
-    receiveBuffer.value = new Uint8Array()
-    hasRememberedPort.value = true
-    hasAvailablePort.value = true
-    statusText.value = ''
-    void readLoop()
-    await verifyDevice()
-    isConnected.value = true
-    await refreshConfig()
-  } catch (error) {
-    if (port.value) {
-      await disconnect({ preserveStatus: true })
-    }
-    statusText.value = normalizeSerialError(error)
-  } finally {
-    isConnecting.value = false
-  }
-}
-
-async function disconnect(options = {}) {
-  const { preserveStatus = false } = options
-  pendingResolver.value = null
-
-  try {
-    await reader.value?.cancel()
-  } catch (error) {
-    statusText.value = error.message
-  }
-
-  try {
-    reader.value?.releaseLock()
-    writer.value?.releaseLock()
-    await port.value?.close()
-  } catch (error) {
-    statusText.value = error.message
-  } finally {
-    reader.value = null
-    writer.value = null
-    port.value = null
-    isConnected.value = false
-    await refreshKnownPorts()
-
-    if (!preserveStatus && !hasRememberedPort.value) {
-      statusText.value = 'Устройство не подключено'
-    }
-  }
-}
-
-async function sendCommand(command, payload = new Uint8Array(), expected = [COMMANDS.ack]) {
-  if (!writer.value) {
-    throw new Error('Сначала подключите устройство')
-  }
-
-  const responsePromise = waitForFrame(expected)
-  await writer.value.write(buildFrame(command, payload))
-  return responsePromise
-}
-
-async function withBusyState(work) {
-  isBusy.value = true
-  try {
-    await work()
-  } finally {
-    isBusy.value = false
-  }
-}
-
-async function refreshConfig() {
-  await withBusyState(async () => {
-    const frame = await sendCommand(COMMANDS.getConfig, new Uint8Array(), [COMMANDS.config, COMMANDS.error])
-    if (frame.command === COMMANDS.error) {
-      throw new Error(`Устройство вернуло ошибку ${frame.payload[0]}`)
-    }
-
-    applyConfig(decodeConfig(frame.payload))
-  })
-}
-
-async function verifyDevice() {
-  let frame
-
-  try {
-    frame = await sendCommand(COMMANDS.ping, new Uint8Array(), [COMMANDS.pong, COMMANDS.error])
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Таймаут ожидания ответа от устройства') {
-      throw new Error('Подключено неподдерживаемое устройство или устройство не отвечает')
-    }
-
-    throw error
-  }
-
-  if (frame.command === COMMANDS.error || frame.payload[0] !== STATUS.ok) {
-    throw new Error('Подключено неподдерживаемое устройство')
-  }
-
-  deviceType.value = frame.payload[1] ?? DEVICE_TYPES.oneShot
-  form.deviceType = deviceType.value
-  statusText.value = `Подключено`
-}
-
-async function saveConfig() {
-  await withBusyState(async () => {
-    const payload = encodeConfig(form)
-    const frame = await sendCommand(COMMANDS.setConfig, payload, [COMMANDS.ack, COMMANDS.error])
-
-    if (frame.command === COMMANDS.error || frame.payload[0] !== STATUS.ok) {
-      throw new Error(`Не удалось сохранить конфигурацию: ${frame.payload[0]}`)
-    }
-
-    statusText.value = 'Сохранено'
-  })
-}
 
 const scheduleAutoSave = throttle(async () => {
   if (!isConnected.value || isConnecting.value) {
@@ -436,102 +74,13 @@ const scheduleAutoSave = throttle(async () => {
   }
 }, 50)
 
-async function resetConfig() {
-  if (!window.confirm('Сбросить конфигурацию к настройкам по умолчанию?')) {
-    return
-  }
-
-  await withBusyState(async () => {
-    const frame = await sendCommand(COMMANDS.resetConfig, new Uint8Array(), [COMMANDS.config, COMMANDS.error])
-    if (frame.command === COMMANDS.error) {
-      throw new Error(`Не удалось сбросить конфигурацию: ${frame.payload[0]}`)
-    }
-
-    applyConfig(decodeConfig(frame.payload))
-  })
-}
-
-function updateGesture(field, gesture) {
-  form[field] = gesture
-}
-
 function handleInvalidHotkeyChar() {
   statusText.value = 'Пока поддерживаются латинские буквы, цифры и основные знаки'
 }
 
-function delay(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms)
-  })
-}
-
-function isRetryableOpenError(error) {
-  const message = error?.message ?? ''
-
-  return (
-    message.includes("Failed to execute 'open' on 'SerialPort': Failed to open serial port.") ||
-    message.includes('The port is already open.')
-  )
-}
-
-async function openPortWithRetry(serialPort) {
-  const delays = [0, 200, 500]
-  let lastError = null
-
-  for (const waitMs of delays) {
-    if (waitMs > 0) {
-      await delay(waitMs)
-    }
-
-    try {
-      await serialPort.open({ baudRate: SERIAL_BAUD })
-      return
-    } catch (error) {
-      lastError = error
-
-      if (!isRetryableOpenError(error)) {
-        throw error
-      }
-    }
-  }
-
-  throw lastError
-}
-
-function normalizeSerialError(error) {
-  const message = error?.message ?? ''
-
-  if (message.includes("Failed to execute 'open' on 'SerialPort': Failed to open serial port.")) {
-    return 'Не удалось открыть порт. Похоже, устройство уже занято другой вкладкой или приложением.'
-  }
-
-  if (message.includes('The port is already open.')) {
-    return 'Порт уже открыт. Закройте другое подключение к устройству и попробуйте снова.'
-  }
-
-  return message || 'Не удалось подключить устройство'
-}
-
 onBeforeUnmount(() => {
   scheduleAutoSave.cancel()
-
-  if ('serial' in navigator) {
-    navigator.serial.removeEventListener('connect', handleSerialConnect)
-    navigator.serial.removeEventListener('disconnect', handleSerialDisconnect)
-  }
-
   disconnect()
-})
-
-onMounted(async () => {
-  if (!('serial' in navigator)) {
-    statusText.value = 'Конфгирутор работает только в Хроме'
-    return
-  }
-
-  navigator.serial.addEventListener('connect', handleSerialConnect)
-  navigator.serial.addEventListener('disconnect', handleSerialDisconnect)
-  await refreshKnownPorts()
 })
 
 watch(
