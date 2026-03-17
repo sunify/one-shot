@@ -80,8 +80,6 @@ defineEmits(['connect'])
           {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
         </button>
       </div>
-
-      <p class="status">{{ statusText }}</p>
     </section>
 
     <slot />

@@ -136,12 +136,5 @@ watch(
         />
       </PanelSection>
     </template>
-    <template v-if="isConnected" #footer>
-      <section class="footer-actions">
-        <button class="ghost" :disabled="isBusy" @click="resetConfig">
-          Сбросить
-        </button>
-      </section>
-    </template>
   </AppShell>
 </template>
