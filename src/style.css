@@ -137,6 +137,7 @@ h2 {
 
 .grid {
   gap: 20px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .color-layout {
@@ -166,6 +167,49 @@ h2 {
 .field {
   display: grid;
   gap: 8px;
+}
+
+.gesture-card {
+  position: relative;
+}
+
+.gesture-trigger {
+  width: 100%;
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 2px solid #111111;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #111111;
+  text-align: left;
+}
+
+.gesture-trigger-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.gesture-trigger-value {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.gesture-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 5;
+  min-width: 100%;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 2px solid #111111;
+  border-radius: 10px;
+  background: #ffffff;
 }
 
 .field span {
