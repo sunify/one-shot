@@ -73,17 +73,18 @@ export const FUNCTION_KEY_OPTIONS = [
 ]
 
 export const HOTKEY_KEY_OPTIONS = [
-  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((label, index) => ({
-    label,
-    code: 0x04 + index,
-  })),
+  { label: 'Tab', code: 0x2B },
+  { label: 'Esc', code: 0x29 },
+  { label: 'Enter', code: 0x28 },
+  { label: 'Backspace', code: 0x2a },
   ...'1234567890'.split('').map((label, index) => ({
     label,
     code: 0x1e + index,
   })),
-  { label: 'Esc', code: 0x29 },
-  { label: 'Enter', code: 0x28 },
-  { label: 'Backspace', code: 0x2a },
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((label, index) => ({
+    label,
+    code: 0x04 + index,
+  })),
   ...FUNCTION_KEY_OPTIONS,
 ]
 

@@ -81,12 +81,11 @@ defineEmits(['connect'])
         </button>
       </div>
 
-      <p v-if="!isConnected" class="status">{{ statusText }}</p>
+      <p class="status">{{ statusText }}</p>
     </section>
 
     <slot />
 
     <slot name="footer" />
-    <p v-if="isConnected" class="status">{{ statusText }}</p>
   </main>
 </template>

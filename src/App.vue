@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import throttle from 'lodash-es/throttle'
 import ColorControl from './components/controls/ColorControl.vue'
 import GestureField from './components/controls/GestureField.vue'
 import AppShell from './components/layout/AppShell.vue'
@@ -35,7 +36,7 @@ const isDevicePressed = ref(false)
 const statusText = ref('Устройство не подключено')
 const receiveBuffer = ref(new Uint8Array())
 const pendingResolver = ref(null)
-const suppressColorWatch = ref(false)
+const suppressAutoSave = ref(false)
 
 const form = reactive({
   deviceType: DEVICE_TYPES.oneShot,
@@ -129,7 +130,7 @@ const gestureOptions = [
   {
     label: 'Медиа',
     options: MEDIA_KEY_OPTIONS.map((option) => ({
-      label: `${option.label} · ${toHexCode(option.value)}`,
+      label: option.label,
       value: `consumer:${option.value}`,
     })),
   },
@@ -154,7 +155,7 @@ function cloneGesture(gesture) {
 }
 
 function applyConfig(config) {
-  suppressColorWatch.value = true
+  suppressAutoSave.value = true
   deviceType.value = config.deviceType ?? DEVICE_TYPES.oneShot
   form.deviceType = deviceType.value
   form.singleTap = cloneGesture(config.singleTap)
@@ -418,7 +419,28 @@ async function saveConfig() {
   })
 }
 
+const scheduleAutoSave = throttle(async () => {
+  if (!isConnected.value || isConnecting.value) {
+    return
+  }
+
+  if (isBusy.value) {
+    scheduleAutoSave()
+    return
+  }
+
+  try {
+    await saveConfig()
+  } catch (error) {
+    statusText.value = error?.message ?? 'Не удалось сохранить конфигурацию'
+  }
+}, 50)
+
 async function resetConfig() {
+  if (!window.confirm('Сбросить конфигурацию к настройкам по умолчанию?')) {
+    return
+  }
+
   await withBusyState(async () => {
     const frame = await sendCommand(COMMANDS.resetConfig, new Uint8Array(), [COMMANDS.config, COMMANDS.error])
     if (frame.command === COMMANDS.error) {
@@ -491,6 +513,8 @@ function normalizeSerialError(error) {
 }
 
 onBeforeUnmount(() => {
+  scheduleAutoSave.cancel()
+
   if ('serial' in navigator) {
     navigator.serial.removeEventListener('connect', handleSerialConnect)
     navigator.serial.removeEventListener('disconnect', handleSerialDisconnect)
@@ -511,17 +535,18 @@ onMounted(async () => {
 })
 
 watch(
-  () => [form.red, form.green, form.blue, form.breathingEnabled],
+  form,
   () => {
-    if (suppressColorWatch.value) {
-      suppressColorWatch.value = false
+    if (suppressAutoSave.value) {
+      suppressAutoSave.value = false
       return
     }
 
-    if (supportsLighting.value && isConnected.value && !isBusy.value) {
-      saveConfig()
+    if (isConnected.value) {
+      scheduleAutoSave()
     }
   },
+  { deep: true },
 )
 </script>
 
@@ -564,9 +589,6 @@ watch(
     </template>
     <template v-if="isConnected" #footer>
       <section class="footer-actions">
-        <button class="primary" :disabled="isBusy" @click="saveConfig">
-          Сохранить
-        </button>
         <button class="ghost" :disabled="isBusy" @click="resetConfig">
           Сбросить
         </button>
