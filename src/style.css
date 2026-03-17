@@ -40,8 +40,9 @@ button {
 
 .shell {
   width: min(720px, calc(100vw - 32px));
-  margin: 0;
+  margin: 0 auto;
   padding: 24px 0 64px 24px;
+  text-align: center;
 }
 
 .hero,
@@ -83,6 +84,7 @@ h2 {
 .footer-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 12px;
 }
 

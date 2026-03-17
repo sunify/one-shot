@@ -7,7 +7,7 @@ import {
   useFloating,
 } from '@floating-ui/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ACTION_TYPES, formatHotkey, isEditableCharHotkey, toHexCode } from '../../protocol'
+import { ACTION_TYPES, formatConsumerPreview, formatHotkey, isEditableCharHotkey, toHexCode } from '../../protocol'
 import HotkeyEditor from './HotkeyEditor.vue'
 
 const props = defineProps({
@@ -71,7 +71,7 @@ const currentActionLabel = computed(() => {
     return formatHotkey(props.gesture)
   }
 
-  return consumerLabel(props.gesture.code)
+  return formatConsumerPreview(props.gesture.code)
 })
 
 function gestureSelectValue() {

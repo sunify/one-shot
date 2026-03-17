@@ -47,12 +47,21 @@ export const MEDIA_KEY_OPTIONS = [
   { label: 'Плей / Пауза', value: 0x00cd },
   { label: 'Следующий трек', value: 0x00b5 },
   { label: 'Предыдущий трек', value: 0x00b6 },
-  { label: 'Стоп', value: 0x00b7 },
   { label: 'Без звука', value: 0x00e2 },
   { label: 'Громче', value: 0x00e9 },
   { label: 'Тише', value: 0x00ea },
   { label: 'Поиск', value: 0x0221 },
 ]
+
+const MEDIA_PREVIEW_LABELS = {
+  0x00cd: '▶︎',
+  0x00b5: '⏭',
+  0x00b6: '⏮',
+  0x00e2: '🔇',
+  0x00e9: '🔊+',
+  0x00ea: '🔉−',
+  0x0221: '⌕',
+}
 
 export const FUNCTION_KEY_OPTIONS = [
   { label: 'F1', code: 0x3a },
@@ -454,13 +463,13 @@ export function formatHotkey(gesture) {
   }
 
   const parts = []
+  if (gesture.modifiers & MODIFIERS.meta) parts.push('⌘')
   if (gesture.modifiers & MODIFIERS.ctrl) parts.push('Ctrl')
   if (gesture.modifiers & MODIFIERS.shift) parts.push('Shift')
   if (gesture.modifiers & MODIFIERS.alt) parts.push('Alt')
-  if (gesture.modifiers & MODIFIERS.meta) parts.push('Meta')
 
   parts.push(hotkeyCharFromCode(gesture.code, gesture.modifiers) || KEY_ALIASES[HID_LABELS[gesture.code]] || HID_LABELS[gesture.code] || toHexCode(gesture.code))
-  return parts.join('+')
+  return parts.join('\u2009+\u2009')
 }
 
 export function hotkeyCharFromCode(code, modifiers = 0) {
@@ -471,8 +480,7 @@ export function hotkeyCharFromCode(code, modifiers = 0) {
   }
 
   if (code >= 0x04 && code <= 0x1d) {
-    const char = String.fromCharCode(97 + (code - 0x04))
-    return shiftEnabled ? char.toUpperCase() : char
+    return String.fromCharCode(65 + (code - 0x04))
   }
 
   const label = HID_LABELS[code]
@@ -514,4 +522,8 @@ export function getDeviceName(deviceType) {
   }
 
   return 'One Shot'
+}
+
+export function formatConsumerPreview(code) {
+  return MEDIA_PREVIEW_LABELS[code] || toHexCode(code)
 }
