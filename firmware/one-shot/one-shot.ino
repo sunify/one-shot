@@ -3,9 +3,10 @@
 #include <EEPROM.h>
 #include "device_protocol.h"
 
-#define BTN_PIN 6
+#define BTN_GROUND_PIN 9
+#define BTN_INPUT_PIN 10
 
-#define DATA_PIN 10
+#define DATA_PIN A3
 #define NUM_LEDS 2
 #define LED_TYPE WS2812
 #define COLOR_ORDER GRB
@@ -148,7 +149,7 @@ void sendAction(uint8_t taps) {
 
 void updateButton() {
 
-  bool state = digitalRead(BTN_PIN);
+  bool state = digitalRead(BTN_INPUT_PIN);
   uint32_t now = millis();
 
   if (state != lastState && (now - lastChange) > DEBOUNCE) {
@@ -321,7 +322,9 @@ void handleSerial() {
 
 void setup() {
 
-  pinMode(BTN_PIN, INPUT_PULLUP);
+  pinMode(BTN_GROUND_PIN, OUTPUT);
+  digitalWrite(BTN_GROUND_PIN, LOW);
+  pinMode(BTN_INPUT_PIN, INPUT_PULLUP);
 
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.clear();
