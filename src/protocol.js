@@ -44,7 +44,7 @@ export const MODIFIERS = {
 }
 
 export const MEDIA_KEY_OPTIONS = [
-  { label: 'Плей / Пауза', value: 0x00cd },
+  { label: 'Плэй / Пауза', value: 0x00cd },
   { label: 'Следующий трек', value: 0x00b5 },
   { label: 'Предыдущий трек', value: 0x00b6 },
   { label: 'Мьют', value: 0x00e2 },
