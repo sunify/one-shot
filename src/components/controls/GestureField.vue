@@ -1,13 +1,7 @@
 <script setup>
-import {
-  autoUpdate,
-  flip,
-  offset,
-  shift,
-  useFloating,
-} from '@floating-ui/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ACTION_TYPES, formatConsumerPreview, formatHotkey, isEditableCharHotkey, toHexCode } from '../../protocol'
+import { computed } from 'vue'
+import { ACTION_TYPES, formatHotkey, isEditableCharHotkey, toHexCode } from '../../protocol'
+import DropdownPanel from './DropdownPanel.vue'
 import HotkeyEditor from './HotkeyEditor.vue'
 
 const props = defineProps({
@@ -38,16 +32,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:gesture', 'invalid-hotkey-char'])
-const isOpen = ref(false)
-const root = ref(null)
-const reference = ref(null)
-const floating = ref(null)
-
-const { floatingStyles } = useFloating(reference, floating, {
-  placement: 'bottom-center',
-  middleware: [offset(8), flip(), shift({ padding: 12 })],
-  whileElementsMounted: autoUpdate,
-})
 
 function hasConsumerOption(code) {
   return props.gestureOptions.some((group) =>
@@ -71,7 +55,7 @@ const currentActionLabel = computed(() => {
     return formatHotkey(props.gesture)
   }
 
-  return formatConsumerPreview(props.gesture.code)
+  return consumerLabel(props.gesture.code)
 })
 
 function gestureSelectValue() {
@@ -101,92 +85,57 @@ function updateGesture(value) {
     })
     return
   }
-
-  isOpen.value = false
   emit('update:gesture', {
     type: ACTION_TYPES.consumer,
     code: Number(value.replace('consumer:', '')),
     modifiers: 0,
   })
 }
-
-function closeDropdown() {
-  isOpen.value = false
-}
-
-function handleDocumentPointerDown(event) {
-  if (!root.value?.contains(event.target)) {
-    closeDropdown()
-  }
-}
-
-function handleDocumentKeydown(event) {
-  if (event.key === 'Escape') {
-    closeDropdown()
-  }
-}
-
-watch(isOpen, (open) => {
-  if (open) {
-    document.addEventListener('pointerdown', handleDocumentPointerDown)
-    document.addEventListener('keydown', handleDocumentKeydown)
-    return
-  }
-
-  document.removeEventListener('pointerdown', handleDocumentPointerDown)
-  document.removeEventListener('keydown', handleDocumentKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', handleDocumentPointerDown)
-  document.removeEventListener('keydown', handleDocumentKeydown)
-})
 </script>
 
 <template>
-  <div ref="root" class="gesture-card">
+  <div class="gesture-card">
     <span class="gesture-trigger-label">
       {{ label }}
     </span>
-    <button
-      ref="reference"
-      class="gesture-trigger"
-      type="button"
-      @click="isOpen = !isOpen"
-    >
-      <span class="gesture-trigger-value">{{ currentActionLabel }}</span>
-    </button>
+    <DropdownPanel>
+      <template #trigger="{ toggle, triggerRef }">
+        <button
+          :ref="triggerRef"
+          class="gesture-trigger"
+          type="button"
+          @click="toggle"
+        >
+          <span class="gesture-trigger-value">{{ currentActionLabel }}</span>
+        </button>
+      </template>
 
-    <div
-      v-if="isOpen"
-      ref="floating"
-      class="gesture-dropdown"
-      :style="floatingStyles"
-    >
-      <label class="field">
-        <select :value="gestureSelectValue()" @change="updateGesture($event.target.value)">
-          <option :value="hotkeySelectValue">Горячая клавиша</option>
-          <option
-            v-if="gesture.type === ACTION_TYPES.consumer && !hasConsumerOption(gesture.code)"
-            :value="`consumer:${gesture.code}`"
-          >
-            Неподдерживаемое действие · {{ toHexCode(gesture.code) }}
-          </option>
-          <optgroup v-for="group in gestureOptions" :key="group.label" :label="group.label">
-            <option v-for="option in group.options" :key="option.value" :value="option.value">
-              {{ option.label }}
+      <template #default>
+        <label class="field">
+          <select :value="gestureSelectValue()" @change="updateGesture($event.target.value)">
+            <option :value="hotkeySelectValue">Горячая клавиша</option>
+            <option
+              v-if="gesture.type === ACTION_TYPES.consumer && !hasConsumerOption(gesture.code)"
+              :value="`consumer:${gesture.code}`"
+            >
+              Неподдерживаемое действие · {{ toHexCode(gesture.code) }}
             </option>
-          </optgroup>
-        </select>
-      </label>
-      <HotkeyEditor
-        v-if="isEditableCharHotkey(gesture)"
-        :gesture="gesture"
-        :is-mac-like="isMacLike"
-        :modifier-options="modifierOptions"
-        @invalid-char="$emit('invalid-hotkey-char')"
-        @update:gesture="$emit('update:gesture', $event)"
-      />
-    </div>
+            <optgroup v-for="group in gestureOptions" :key="group.label" :label="group.label">
+              <option v-for="option in group.options" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </optgroup>
+          </select>
+        </label>
+        <HotkeyEditor
+          v-if="isEditableCharHotkey(gesture)"
+          :gesture="gesture"
+          :is-mac-like="isMacLike"
+          :modifier-options="modifierOptions"
+          @invalid-char="$emit('invalid-hotkey-char')"
+          @update:gesture="$emit('update:gesture', $event)"
+        />
+      </template>
+    </DropdownPanel>
   </div>
 </template>

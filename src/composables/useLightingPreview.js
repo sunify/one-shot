@@ -41,6 +41,7 @@ export function useLightingPreview(form, deviceType) {
   const colorPreviewStyle = computed(() => {
     if (deviceType.value === DEVICE_TYPES.magicButton) {
       return {
+        '--selection-color': '#5AB9CF',
         '--top-color': '#FFF',
         '--top-shade-color': '#FFF',
         '--button-color': '#5AB9CF',
@@ -48,6 +49,7 @@ export function useLightingPreview(form, deviceType) {
     }
 
     return {
+      '--selection-color': `hsla(${hsl.value.h % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
       '--top-color': `hsla(${hsl.value.h % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
       '--top-shade-color': '#cf00ff',
       '--button-color': '#FFF',

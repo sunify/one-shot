@@ -100,13 +100,16 @@ watch(
 </script>
 
 <template>
-  <main class="shell" :style="colorPreviewStyle">
+  <main class="shell" :class="{ 'connected': isConnected }" :style="colorPreviewStyle">
     <section class="hero">
       <h1 v-html="appTitle" />
+      <button v-if="!isConnected" class="primary" :disabled="isBusy || isConnecting" @click="connect">
+        {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
+      </button>
     </section>
 
     <PanelSection panel-class="color-panel">
-      <DevicePreview :is-pressed="isDevicePressed" :width="200" />
+      <DevicePreview :is-pressed="isDevicePressed" :width="250" />
       <ColorControl
         v-if="isConnected && supportsLighting"
         v-model="selectedColor"
@@ -114,12 +117,6 @@ watch(
         @update:breathing-enabled="form.breathingEnabled = $event"
       />
     </PanelSection>
-
-    <div v-if="!isConnected" class="actions">
-      <button class="primary" :disabled="isBusy || isConnecting" @click="connect">
-        {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
-      </button>
-    </div>
 
     <PanelSection v-if="isConnected">
       <div class="grid">

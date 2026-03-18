@@ -47,21 +47,11 @@ export const MEDIA_KEY_OPTIONS = [
   { label: 'Плей / Пауза', value: 0x00cd },
   { label: 'Следующий трек', value: 0x00b5 },
   { label: 'Предыдущий трек', value: 0x00b6 },
-  { label: 'Без звука', value: 0x00e2 },
+  { label: 'Мьют', value: 0x00e2 },
   { label: 'Громче', value: 0x00e9 },
   { label: 'Тише', value: 0x00ea },
   { label: 'Поиск', value: 0x0221 },
 ]
-
-const MEDIA_PREVIEW_LABELS = {
-  0x00cd: '▶︎',
-  0x00b5: '⏭',
-  0x00b6: '⏮',
-  0x00e2: '🔇',
-  0x00e9: '🔊+',
-  0x00ea: '🔉−',
-  0x0221: '⌕',
-}
 
 export const FUNCTION_KEY_OPTIONS = [
   { label: 'F1', code: 0x3a },
@@ -522,8 +512,4 @@ export function getDeviceName(deviceType) {
   }
 
   return 'One Shot'
-}
-
-export function formatConsumerPreview(code) {
-  return MEDIA_PREVIEW_LABELS[code] || toHexCode(code)
 }
