@@ -15,8 +15,10 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
 
 <template>
   <div class="color-layout">
-    <label class="field">
+    <label class="color-input">
       <input :value="modelValue" type="color" @input="$emit('update:modelValue', $event.target.value)" />
+      <div class="color-input-overlay" style="background: var(--top-color);" />
+      <div class="color-input-overlay" style="background: var(--top-shade-color); opacity: 0.1;" />
     </label>
     <label class="toggle-field">
       <input

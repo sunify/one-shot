@@ -4,10 +4,6 @@ defineProps({
     type: String,
     default: '',
   },
-  accentStyle: {
-    type: Object,
-    default: null,
-  },
   panelClass: {
     type: String,
     default: '',
@@ -16,12 +12,7 @@ defineProps({
 </script>
 
 <template>
-  <section :class="['panel', panelClass]" :style="accentStyle">
-    <div class="panel-head">
-      <h2 v-if="title">{{ title }}</h2>
-      <slot name="aside" />
-    </div>
-
+  <section :class="['panel', panelClass]">
     <slot />
   </section>
 </template>

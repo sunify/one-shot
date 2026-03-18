@@ -102,9 +102,18 @@ watch(
 <template>
   <main class="shell" :style="colorPreviewStyle">
     <section class="hero">
-      <DevicePreview :is-pressed="isDevicePressed" :width="200" />
       <h1 v-html="appTitle" />
     </section>
+
+    <PanelSection panel-class="color-panel">
+      <DevicePreview :is-pressed="isDevicePressed" :width="200" />
+      <ColorControl
+        v-if="isConnected && supportsLighting"
+        v-model="selectedColor"
+        :breathing-enabled="form.breathingEnabled"
+        @update:breathing-enabled="form.breathingEnabled = $event"
+      />
+    </PanelSection>
 
     <div v-if="!isConnected" class="actions">
       <button class="primary" :disabled="isBusy || isConnecting" @click="connect">
@@ -129,13 +138,8 @@ watch(
       </div>
     </PanelSection>
 
-
-    <PanelSection v-if="isConnected && supportsLighting" panel-class="accent-panel" :accent-style="colorPreviewStyle">
-      <ColorControl
-        v-model="selectedColor"
-        :breathing-enabled="form.breathingEnabled"
-        @update:breathing-enabled="form.breathingEnabled = $event"
-      />
-    </PanelSection>
+    <div class="footer">
+      lun<em>ё</em>v, 2026
+    </div>
   </main>
 </template>
