@@ -23,9 +23,8 @@
 }
 
 body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
+  margin: 0 auto;
+  width: 700px;
   background: #ffffff;
   color: #111111;
 }
@@ -48,7 +47,7 @@ button {
 .shell {
   min-height: 100vh;
   position: relative;
-  width: 800px;
+  width: 700px;
   margin: 0;
   padding: 10vh 100px 64px 100px;
   text-align: center;
@@ -109,6 +108,7 @@ h2 {
   background: #ffffff;
   color: #111111;
   text-align: center;
+  font-weight: 500;
 }
 
 .ghost {
@@ -433,6 +433,7 @@ h2 {
   text-align: center;
   left: 0;
   right: 0;
+  opacity: 0.3;
 }
 
 .color-button {

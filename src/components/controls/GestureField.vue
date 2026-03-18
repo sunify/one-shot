@@ -66,7 +66,7 @@ function gestureSelectValue() {
   return `consumer:${props.gesture.code}`
 }
 
-function updateGesture(value) {
+function updateGesture(value, close) {
   if (value === props.hotkeySelectValue) {
     emit('update:gesture', {
       type: ACTION_TYPES.hotkey,
@@ -90,6 +90,7 @@ function updateGesture(value) {
     code: Number(value.replace('consumer:', '')),
     modifiers: 0,
   })
+  close?.();
 }
 </script>
 
@@ -110,9 +111,9 @@ function updateGesture(value) {
         </button>
       </template>
 
-      <template #default>
+      <template #default="{ close }">
         <label class="field">
-          <select :value="gestureSelectValue()" @change="updateGesture($event.target.value)">
+          <select :value="gestureSelectValue()" @change="updateGesture($event.target.value, close)">
             <option :value="hotkeySelectValue">Горячая клавиша</option>
             <option
               v-if="gesture.type === ACTION_TYPES.consumer && !hasConsumerOption(gesture.code)"
