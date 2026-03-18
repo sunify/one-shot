@@ -56,7 +56,19 @@ defineEmits(['connect'])
 <template>
   <main class="shell">
     <section class="hero">
-      <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5" viewBox="0 0 300 210" width="200">
+      
+
+
+      <h1 v-html="title" />
+
+    </section>
+    
+    <div v-if="!isConnected" class="actions">
+      <button class="primary" :disabled="isBusy || isConnecting" @click="$emit('connect')">
+        {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
+      </button>
+    </div>
+    <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5" viewBox="0 0 300 210" width="200">
         <g style="user-select: none; cursor: pointer;" @mousedown="handleMouseDown" @mouseup="" :transform="`translate(0, ${visualButtonOffset})`">
           <path d="M51.7 59.5s-.2-26.8 0-34.2c0-1.2 5.8-7 6.6-7.2a3361 3361 0 0 1 80-16.6s7.4-.5 12.2-.5c4 0 10.3.5 10.3.5l11.2 2 67 14.6s2.7.7 3.7 1.5c1.5 1.2 5.6 4.6 5.6 5.7v34.2L167.4 76l-8.7.5-5.6.6h-8.2l-14.4-1z" style="fill:var(--button-color);stroke:#000;stroke-width:1.67px"/>
           <path d="M56.8 19.1s.3 2 1 2.6c1 .7 4.6 1.5 4.6 1.5l71.2 15s10 1 14.9 1 14.8-1 14.8-1l73.7-15s3.2-.9 4.1-1.5a7 7 0 0 0 1.6-2" style="fill:none;stroke:#000;stroke-width:1.25px"/>
@@ -71,16 +83,6 @@ defineEmits(['connect'])
         <path d="M1 61.5s3.2 2.9 5.1 3.7c3 1.2 8.1 2.7 12.3 3.6C35.1 72.5 106 87.4 106 87.4s27.6 3.6 41.4 3.6c14.3 0 44-3.6 44-3.6l89.2-18.1s7.6-1.8 10.7-3.1c2.8-1.2 7.7-4.7 7.7-4.7M4 178s9.2 3 13.9 4c17 3.9 88 18.7 88 18.7s28 3.6 42 3.6c14.3 0 43.6-3.6 43.6-3.6l89-18s8.3-1.6 11.3-2.7c2.4-.8 6.7-3.6 6.7-3.6" style="fill:none;stroke:#000;stroke-width:1.25px"/>
         <path d="m22 63.6-3.6 5.2V182l3 4.7m87.6 19.2-3-5.2V87.4l3.5-5.7m78.4 0 3.6 5.7v113.3l-3.6 4.7m90.6-18.6 2-4.7V69.3l-3.5-5.7" style="fill:none;stroke:#000;stroke-width:1.25px"/>
       </svg>
-
-
-      <h1 v-html="title" />
-
-      <div v-if="!isConnected" class="actions">
-        <button class="primary" :disabled="isBusy || isConnecting" @click="$emit('connect')">
-          {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
-        </button>
-      </div>
-    </section>
 
     <slot />
 

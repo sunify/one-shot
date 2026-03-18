@@ -44,7 +44,7 @@ const reference = ref(null)
 const floating = ref(null)
 
 const { floatingStyles } = useFloating(reference, floating, {
-  placement: 'bottom-start',
+  placement: 'bottom-center',
   middleware: [offset(8), flip(), shift({ padding: 12 })],
   whileElementsMounted: autoUpdate,
 })
@@ -102,6 +102,7 @@ function updateGesture(value) {
     return
   }
 
+  isOpen.value = false
   emit('update:gesture', {
     type: ACTION_TYPES.consumer,
     code: Number(value.replace('consumer:', '')),
@@ -144,13 +145,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="root" class="gesture-card">
+    <span class="gesture-trigger-label">
+      {{ label }}
+    </span>
     <button
       ref="reference"
       class="gesture-trigger"
       type="button"
       @click="isOpen = !isOpen"
     >
-      <span class="gesture-trigger-label">{{ label }}</span>
       <span class="gesture-trigger-value">{{ currentActionLabel }}</span>
     </button>
 
@@ -161,7 +164,6 @@ onBeforeUnmount(() => {
       :style="floatingStyles"
     >
       <label class="field">
-        <span>Действие</span>
         <select :value="gestureSelectValue()" @change="updateGesture($event.target.value)">
           <option :value="hotkeySelectValue">Горячая клавиша</option>
           <option

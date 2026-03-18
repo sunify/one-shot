@@ -1,9 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, watch } from 'vue'
 import throttle from 'lodash-es/throttle'
+import DevicePreview from './components/DevicePreview.vue'
 import ColorControl from './components/controls/ColorControl.vue'
 import GestureField from './components/controls/GestureField.vue'
-import AppShell from './components/layout/AppShell.vue'
 import PanelSection from './components/layout/PanelSection.vue'
 import { useConfiguratorState } from './composables/useConfiguratorState'
 import { useDeviceConnection } from './composables/useDeviceConnection'
@@ -100,41 +100,42 @@ watch(
 </script>
 
 <template>
-  <AppShell
-    :is-busy="isBusy"
-    :is-connected="isConnected"
-    :is-connecting="isConnecting"
-    :is-device-pressed="isDevicePressed"
-    :status-text="statusText"
-    :title="appTitle"
-    :style="colorPreviewStyle"
-    @connect="connect"
-  >
-    <template v-if="isConnected">
-      <PanelSection>
-        <div class="grid">
-          <GestureField
-            v-for="gestureField in gestureFields"
-            :key="gestureField.key"
-            :gesture="form[gestureField.key]"
-            :gesture-options="gestureOptions"
-            :hotkey-select-value="HOTKEY_SELECT_VALUE"
-            :is-mac-like="isMacLike"
-            :label="gestureField.label"
-            :modifier-options="modifierOptions"
-            @invalid-hotkey-char="handleInvalidHotkeyChar"
-            @update:gesture="updateGesture(gestureField.key, $event)"
-          />
-        </div>
-      </PanelSection>
+  <main class="shell" :style="colorPreviewStyle">
+    <section class="hero">
+      <DevicePreview :is-pressed="isDevicePressed" :width="200" />
+      <h1 v-html="appTitle" />
+    </section>
 
-      <PanelSection v-if="supportsLighting" panel-class="accent-panel" title="Подсветка" :accent-style="colorPreviewStyle">
-        <ColorControl
-          v-model="selectedColor"
-          :breathing-enabled="form.breathingEnabled"
-          @update:breathing-enabled="form.breathingEnabled = $event"
+    <div v-if="!isConnected" class="actions">
+      <button class="primary" :disabled="isBusy || isConnecting" @click="connect">
+        {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
+      </button>
+    </div>
+
+    <PanelSection v-if="isConnected">
+      <div class="grid">
+        <GestureField
+          v-for="gestureField in gestureFields"
+          :key="gestureField.key"
+          :gesture="form[gestureField.key]"
+          :gesture-options="gestureOptions"
+          :hotkey-select-value="HOTKEY_SELECT_VALUE"
+          :is-mac-like="isMacLike"
+          :label="gestureField.label"
+          :modifier-options="modifierOptions"
+          @invalid-hotkey-char="handleInvalidHotkeyChar"
+          @update:gesture="updateGesture(gestureField.key, $event)"
         />
-      </PanelSection>
-    </template>
-  </AppShell>
+      </div>
+    </PanelSection>
+
+
+    <PanelSection v-if="isConnected && supportsLighting" panel-class="accent-panel" :accent-style="colorPreviewStyle">
+      <ColorControl
+        v-model="selectedColor"
+        :breathing-enabled="form.breathingEnabled"
+        @update:breathing-enabled="form.breathingEnabled = $event"
+      />
+    </PanelSection>
+  </main>
 </template>
