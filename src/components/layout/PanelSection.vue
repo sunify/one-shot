@@ -32,7 +32,7 @@ defineProps({
   display: flex;
   align-items: center;
   flex-direction: column;
-  padding-bottom: 40px;
+  padding-bottom: 20px;
 }
 
 .no-lighting {

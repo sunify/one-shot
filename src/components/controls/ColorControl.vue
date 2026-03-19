@@ -141,6 +141,7 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
   border-radius: 50%;
   overflow: hidden;
   transition: all 0.15s ease-in-out;
+  cursor: pointer;
 }
 
 .color-button:hover,
