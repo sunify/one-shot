@@ -97,16 +97,27 @@ h2 {
   margin: 20px 0 8px;
 }
 
-.primary {
-  padding: 14px 16px;
-  font-size: 1rem;
-  line-height: 1;
+.button {
   border: 5px solid #232323;
   border-top-width: 2px;
   border-left-width: 2px;
   border-radius: 8px;
   background: #ffffff;
   color: #111111;
+}
+
+.button:active,
+.button.active {
+  border-top-width: 4px;
+  border-left-width: 4px;
+  border-bottom-width: 3px;
+  border-right-width: 3px;
+}
+
+.primary {
+  padding: 14px 16px;
+  font-size: 1rem;
+  line-height: 1;
   text-align: center;
   font-weight: 500;
 }
@@ -234,21 +245,9 @@ h2 {
   padding: 14px 16px;
   font-size: 2rem;
   line-height: 1;
-  border: 5px solid #232323;
-  border-top-width: 2px;
-  border-left-width: 2px;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #111111;
   text-align: left;
 }
 
-.gesture-trigger:active {
-  border-top-width: 3px;
-  border-left-width: 3px;
-  border-bottom-width: 3px;
-  border-right-width: 3px;
-}
 
 .gesture-trigger-label {
   font-size: 1.1rem;
@@ -363,10 +362,6 @@ h2 {
   background: #ffffff;
   color: #111111;
   user-select: none;
-  border: 5px solid #232323;
-  border-top-width: 2px;
-  border-left-width: 2px;
-  border-radius: 8px;
 
   &[data-key="shift"] {
     min-width: 82px;
@@ -393,11 +388,7 @@ h2 {
   text-transform: lowercase;
 }
 
-.modifier-option input:checked + .modifier-key {
-  border-top-width: 3px;
-  border-left-width: 3px;
-  border-bottom-width: 3px;
-  border-right-width: 3px;
+.modifier-key.active {
   background-color: #efefef;
 }
 

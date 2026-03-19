@@ -103,7 +103,7 @@ function updateGesture(value, close) {
       <template #trigger="{ toggle, triggerRef }">
         <button
           :ref="triggerRef"
-          class="gesture-trigger"
+          class="button gesture-trigger"
           type="button"
           @click="toggle"
         >

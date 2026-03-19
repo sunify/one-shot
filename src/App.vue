@@ -103,7 +103,7 @@ watch(
   <main class="shell" :class="{ 'connected': isConnected }" :style="colorPreviewStyle">
     <section class="hero">
       <h1 v-html="appTitle" />
-      <button v-if="!isConnected" class="primary" :disabled="isBusy || isConnecting" @click="connect">
+      <button v-if="!isConnected" class="button primary" :disabled="isBusy || isConnecting" @click="connect">
         {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
       </button>
     </section>

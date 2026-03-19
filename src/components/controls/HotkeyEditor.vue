@@ -96,7 +96,7 @@ function updateKey(value) {
             type="checkbox"
             @change="updateModifiers(option.value, $event.target.checked)"
           />
-          <span class="modifier-key" :data-key="option.label.toLowerCase()">
+          <span class="button modifier-key" :class="{ active: selectedModifiers.includes(option.value) }" :data-key="option.label.toLowerCase()">
             <span class="modifier-symbol">{{ modifierSymbol(option) }}</span>
             <span class="modifier-label">{{ modifierLabel(option) }}</span>
           </span>
