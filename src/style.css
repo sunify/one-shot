@@ -103,3 +103,40 @@ h2,
   outline: 2px solid var(--color-border);
   outline-offset: 2px;
 }
+
+.select-list {
+  list-style: none;
+  padding: 0;
+  text-align: left;
+  margin: -20px;
+  padding: 10px 0;
+  max-height: 270px;
+  min-width: 200px;
+  overflow-y: auto;
+}
+
+.select-item {
+  padding: 0;
+}
+
+.select-item button {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  background: 0;
+  border: 0;
+  font-weight: 500;
+  padding: 12px 20px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.select-item button:hover {
+  background-color: var(--color-active-check);
+}
+
+.select-item.selected button {
+  background-color: var(--color-text);
+  color: var(--color-bg);
+}

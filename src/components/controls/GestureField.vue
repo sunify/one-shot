@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ACTION_TYPES, formatHotkey, isEditableCharHotkey, toHexCode } from '../../protocol'
 import DropdownPanel from './DropdownPanel.vue'
 import HotkeyEditor from './HotkeyEditor.vue'
@@ -33,18 +33,12 @@ const props = defineProps({
 
 const emit = defineEmits(['update:gesture', 'invalid-hotkey-char'])
 
-function hasConsumerOption(code) {
-  return props.gestureOptions.some((group) =>
-    group.options.some((option) => option.value === `consumer:${code}`),
-  )
-}
+const showHotkeyEditor = ref(isEditableCharHotkey(props.gesture));
 
 function consumerLabel(code) {
-  for (const group of props.gestureOptions) {
-    const option = group.options.find((item) => item.value === `consumer:${code}`)
-    if (option) {
-      return option.label
-    }
+  const option = props.gestureOptions.find((item) => item.value === `consumer:${code}`)
+  if (option) {
+    return option.label
   }
 
   return `Неподдерживаемое действие · ${toHexCode(code)}`
@@ -66,8 +60,17 @@ function gestureSelectValue() {
   return `consumer:${props.gesture.code}`
 }
 
+function gestureSelectLabel() {
+  if (props.gesture.type === ACTION_TYPES.hotkey) {
+    return 'Горячая клавиша'
+  }
+
+  return props.gesture.label
+}
+
 function updateGesture(value, close) {
   if (value === props.hotkeySelectValue) {
+    showHotkeyEditor.value = true;
     emit('update:gesture', {
       type: ACTION_TYPES.hotkey,
       code: props.gesture.type === ACTION_TYPES.hotkey ? props.gesture.code : 0x04,
@@ -77,6 +80,7 @@ function updateGesture(value, close) {
   }
 
   if (value.startsWith('hotkey:')) {
+    showHotkeyEditor.value = true;
     const [, code, modifiers] = value.split(':')
     emit('update:gesture', {
       type: ACTION_TYPES.hotkey,
@@ -85,6 +89,7 @@ function updateGesture(value, close) {
     })
     return
   }
+  showHotkeyEditor.value = false;
   emit('update:gesture', {
     type: ACTION_TYPES.consumer,
     code: Number(value.replace('consumer:', '')),
@@ -99,7 +104,7 @@ function updateGesture(value, close) {
     <span class="gesture-trigger-label">
       {{ label }}
     </span>
-    <DropdownPanel>
+    <DropdownPanel @open="showHotkeyEditor = isEditableCharHotkey(gesture)">
       <template #trigger="{ toggle, triggerRef }">
         <button
           :ref="triggerRef"
@@ -112,30 +117,35 @@ function updateGesture(value, close) {
       </template>
 
       <template #default="{ close }">
-        <label class="field">
-          <select class="input select" :value="gestureSelectValue()" @change="updateGesture($event.target.value, close)">
-            <option :value="hotkeySelectValue">Горячая клавиша</option>
-            <option
-              v-if="gesture.type === ACTION_TYPES.consumer && !hasConsumerOption(gesture.code)"
-              :value="`consumer:${gesture.code}`"
-            >
-              Неподдерживаемое действие · {{ toHexCode(gesture.code) }}
-            </option>
-            <optgroup v-for="group in gestureOptions" :key="group.label" :label="group.label">
-              <option v-for="option in group.options" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </optgroup>
-          </select>
-        </label>
-        <HotkeyEditor
-          v-if="isEditableCharHotkey(gesture)"
-          :gesture="gesture"
-          :is-mac-like="isMacLike"
-          :modifier-options="modifierOptions"
-          @invalid-char="$emit('invalid-hotkey-char')"
-          @update:gesture="$emit('update:gesture', $event)"
-        />
+        <ul v-if="!showHotkeyEditor" class="select-list">
+          <li class="select-item" :class="{ selected: gestureSelectValue() === hotkeySelectValue }">
+            <button @click="updateGesture(hotkeySelectValue, close)">
+              Горячая клавиша
+            </button>
+          </li>
+          <li
+            v-for="option in gestureOptions"
+            :key="option.value"
+            class="select-item"
+            :class="{ selected: gestureSelectValue() === option.value }"
+          >
+            <button @click="updateGesture(option.value, close)">
+              {{ option.label }}
+            </button>
+          </li>
+        </ul>
+        <template v-else>
+          <button class="back-button" @click="showHotkeyEditor = false">
+            ← {{ gestureSelectLabel() }}
+          </button>
+          <HotkeyEditor
+            :gesture="gesture"
+            :is-mac-like="isMacLike"
+            :modifier-options="modifierOptions"
+            @invalid-char="$emit('invalid-hotkey-char')"
+            @update:gesture="$emit('update:gesture', $event)"
+          />
+        </template>
       </template>
     </DropdownPanel>
   </div>
@@ -166,5 +176,22 @@ function updateGesture(value, close) {
   font-size: 1.2rem;
   font-weight: 500;
   line-height: 1.2;
+}
+
+.back-button {
+  appearance: none;
+  border: 0;
+  background: 0;
+  text-align: left;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+  margin-top: -0.5rem;
+  width: fit-content;
+}
+
+.back-button:hover {
+  margin-left: -0.5rem;
 }
 </style>

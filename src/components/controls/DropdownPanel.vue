@@ -9,6 +9,8 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['open', 'close'])
+
 const root = ref(null)
 const reference = ref(null)
 const floating = ref(null)
@@ -59,11 +61,13 @@ watch(isOpen, (open) => {
   if (open) {
     document.addEventListener('pointerdown', handleDocumentPointerDown)
     document.addEventListener('keydown', handleDocumentKeydown)
+    emit('open')
     return
   }
 
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   document.removeEventListener('keydown', handleDocumentKeydown)
+  emit('close')
 })
 
 onBeforeUnmount(() => {

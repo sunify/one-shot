@@ -44,15 +44,10 @@ const appTitle = computed(() =>
   isConnected.value ? `Конфигуратор<br />${getDeviceName(deviceType.value)}` : 'Конфигуратор',
 )
 
-const gestureOptions = [
-  {
-    label: 'Медиа',
-    options: MEDIA_KEY_OPTIONS.map((option) => ({
-      label: option.label,
-      value: `consumer:${option.value}`,
-    })),
-  },
-]
+const gestureOptions = MEDIA_KEY_OPTIONS.map((option) => ({
+  label: option.label,
+  value: `consumer:${option.value}`,
+}))
 
 const isMacLike = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
 const modifierOptions = MODIFIER_OPTIONS
