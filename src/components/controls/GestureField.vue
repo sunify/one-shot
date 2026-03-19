@@ -140,3 +140,31 @@ function updateGesture(value, close) {
     </DropdownPanel>
   </div>
 </template>
+
+<style scoped>
+.gesture-card {
+  position: relative;
+  text-align: center;
+}
+
+.gesture-trigger {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 2rem;
+  line-height: 1;
+  text-align: left;
+}
+
+.gesture-trigger-label {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.gesture-trigger-value {
+  font-size: 1.2rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+</style>

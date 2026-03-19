@@ -140,3 +140,77 @@ watch(
     </div>
   </main>
 </template>
+
+<style scoped>
+.shell {
+  min-height: 100vh;
+  position: relative;
+  width: 700px;
+  margin: 0;
+  padding: 10vh 100px 64px 100px;
+  text-align: center;
+}
+
+.hero {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: 4rem;
+  text-align: center;
+  padding: 0;
+}
+
+.connected .hero {
+  margin-bottom: 5.8rem;
+}
+
+h1 {
+  font-size: 3.4rem;
+  line-height: 1;
+  font-weight: 900;
+  margin-top: 1rem;
+}
+
+h1 + .primary {
+  margin-top: 2rem;
+}
+
+h2 {
+  font-size: 1.4rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.primary {
+  padding: 14px 16px;
+  font-size: 1rem;
+  line-height: 1;
+  text-align: center;
+  font-weight: 500;
+}
+
+.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.grid {
+  gap: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.footer {
+  position: absolute;
+  bottom: 20px;
+  font-size: 1.1rem;
+  font-weight: 500;
+  text-align: center;
+  left: 0;
+  right: 0;
+  opacity: 0.3;
+}
+</style>

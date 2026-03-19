@@ -91,3 +91,20 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.dropdown-panel-root {
+  position: relative;
+}
+
+.dropdown-panel {
+  z-index: 5;
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  box-shadow: 10px 10px 0 0 #111;
+  border: 2px solid #111;
+  border-radius: 8px;
+  background: #ffffff;
+}
+</style>

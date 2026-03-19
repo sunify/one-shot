@@ -114,3 +114,114 @@ function updateKey(value) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.hotkey-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.hotkey-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.modifier-picker {
+  display: inline-flex;
+  gap: 4px;
+  align-items: stretch;
+  min-width: 0;
+  border-radius: 0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.modifier-option {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+}
+
+.modifier-option input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.modifier-key {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 68px;
+  min-height: 44px;
+  padding: 2px 10px 3px;
+  white-space: nowrap;
+  background: #ffffff;
+  color: #000;
+  user-select: none;
+
+  &[data-key="shift"] {
+    min-width: 82px;
+  }
+  &[data-key="alt"],
+  &[data-key="ctrl"] {
+    min-width: 76px;
+  }
+
+  &[data-key="meta"] {
+    min-width: 86px;
+  }
+}
+
+.modifier-symbol {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.modifier-label {
+  font-size: 0.7rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.modifier-key.active {
+  background-color: #efefef;
+}
+
+.modifier-option input:focus-visible + .modifier-key {
+  outline: 2px solid #000;
+  outline-offset: -2px;
+}
+
+.hotkey-char-input {
+  width: 88px !important;
+  border: 2px solid #000;
+  background: #ffffff;
+  color: #000;
+  border-radius: 6px;
+  padding: 10px 12px;
+  min-height: 44px;
+  text-align: center;
+  font-weight: 500;
+  text-transform: uppercase;
+  appearance: base-select;
+  white-space: nowrap;
+}
+
+.hotkey-char-input::picker-icon {
+  color: #000;
+  translate: -2px 0;
+}
+
+.hotkey-char-input:focus-visible {
+  outline: 2px solid #000;
+  outline-offset: 2px;
+}
+
+</style>
