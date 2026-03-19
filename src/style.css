@@ -425,6 +425,10 @@ h2 {
   padding-bottom: 40px;
 }
 
+.no-lighting {
+  padding-bottom: 0;
+}
+
 .footer {
   position: absolute;
   bottom: 20px;

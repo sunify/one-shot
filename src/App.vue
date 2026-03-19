@@ -41,7 +41,7 @@ const {
 })
 
 const appTitle = computed(() =>
-  isConnected.value ? `Конфигуратор<br />для ${getDeviceName(deviceType.value)}` : 'Конфигуратор',
+  isConnected.value ? `Конфигуратор<br />${getDeviceName(deviceType.value)}` : 'Конфигуратор',
 )
 
 const gestureOptions = [
@@ -108,7 +108,7 @@ watch(
       </button>
     </section>
 
-    <PanelSection panel-class="color-panel">
+    <PanelSection :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
       <DevicePreview :is-pressed="isDevicePressed" :width="250" />
       <ColorControl
         v-if="isConnected && supportsLighting"
