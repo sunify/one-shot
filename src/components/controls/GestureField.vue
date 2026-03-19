@@ -113,7 +113,7 @@ function updateGesture(value, close) {
 
       <template #default="{ close }">
         <label class="field">
-          <select :value="gestureSelectValue()" @change="updateGesture($event.target.value, close)">
+          <select class="input select" :value="gestureSelectValue()" @change="updateGesture($event.target.value, close)">
             <option :value="hotkeySelectValue">Горячая клавиша</option>
             <option
               v-if="gesture.type === ACTION_TYPES.consumer && !hasConsumerOption(gesture.code)"

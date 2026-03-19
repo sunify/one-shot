@@ -104,7 +104,7 @@ function updateKey(value) {
       </div>
       <select
         :value="gesture.code"
-        class="hotkey-char-input"
+        class="input select hotkey-char-input"
         @change="updateKey($event.target.value)"
       >
         <option v-for="option in HOTKEY_KEY_OPTIONS" :key="option.code" :value="option.code">
@@ -140,7 +140,7 @@ function updateKey(value) {
 .modifier-option {
   position: relative;
   display: flex;
-  flex: 1 1 0;
+  flex-shrink: 0;
 }
 
 .modifier-option input {
@@ -200,28 +200,7 @@ function updateKey(value) {
 }
 
 .hotkey-char-input {
-  width: 88px !important;
-  border: 2px solid #000;
-  background: #ffffff;
-  color: #000;
-  border-radius: 6px;
-  padding: 10px 12px;
-  min-height: 44px;
-  text-align: center;
-  font-weight: 500;
-  text-transform: uppercase;
-  appearance: base-select;
-  white-space: nowrap;
-}
-
-.hotkey-char-input::picker-icon {
-  color: #000;
-  translate: -2px 0;
-}
-
-.hotkey-char-input:focus-visible {
-  outline: 2px solid #000;
-  outline-offset: 2px;
+  width: auto;
 }
 
 </style>

@@ -68,8 +68,7 @@ h2,
   font-weight: 500;
 }
 
-.field input,
-.field select {
+.input {
   width: 100%;
   border: 2px solid #000;
   background: #ffffff;
@@ -81,18 +80,18 @@ h2,
   font-weight: 500;
 }
 
-.field select {
+.select {
   appearance: base-select;
   white-space: nowrap;
 }
 
-.field select::picker-icon {
+.select::picker-icon {
   color: #000;
   translate: -2px 0;
 }
 
-.field input:focus-visible,
-.field select:focus-visible,
+.input:focus-visible,
+.select:focus-visible,
 .primary:focus-visible {
   outline: 2px solid #000;
   outline-offset: 2px;
