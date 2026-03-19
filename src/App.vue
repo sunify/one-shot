@@ -170,6 +170,7 @@ h1 {
   line-height: 1;
   font-weight: 900;
   margin-top: 1rem;
+  color: var(--color-title);
 }
 
 h1 + .primary {

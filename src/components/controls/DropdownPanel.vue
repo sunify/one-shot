@@ -102,9 +102,9 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 12px;
   padding: 20px;
-  box-shadow: 10px 10px 0 0 #111;
-  border: 2px solid #111;
+  box-shadow: 10px 10px 0 0 var(--color-border);
+  border: 2px solid var(--color-border);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 </style>

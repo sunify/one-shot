@@ -134,7 +134,7 @@ function updateKey(value) {
   min-width: 0;
   border-radius: 0;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 
 .modifier-option {
@@ -161,8 +161,8 @@ function updateKey(value) {
   min-height: 44px;
   padding: 2px 10px 3px;
   white-space: nowrap;
-  background: #ffffff;
-  color: #000;
+  background: var(--color-bg);
+  color: var(--color-text);
   user-select: none;
 
   &[data-key="shift"] {
@@ -191,11 +191,11 @@ function updateKey(value) {
 }
 
 .modifier-key.active {
-  background-color: #efefef;
+  background-color: var(--color-active-check);
 }
 
 .modifier-option input:focus-visible + .modifier-key {
-  outline: 2px solid #000;
+  outline: 2px solid var(--color-border);
   outline-offset: -2px;
 }
 

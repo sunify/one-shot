@@ -60,7 +60,7 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
   margin-bottom: -15px;
   height: 60px;
   width: 1.5px;
-  background-color: #000;
+  background-color: var(--color-border);
   position: absolute;
 }
 
@@ -70,7 +70,7 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
   height: 50px;
   border-radius: 8px;
   overflow: hidden;
-  border: 1.3px solid #000;
+  border: 1.3px solid var(--color-border);
 }
 
 .color-input input[type="color"] {
@@ -116,7 +116,7 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: #000;
+  color: var(--color-text);
 }
 
 .toggle-field input {
@@ -125,8 +125,9 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
 }
 
 .color-button {
-  background-color: #fff;
-  border: 1.5px solid #232323;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  border: 1.5px solid var(--color-border);
   padding: 7px 15px 10px;
   font-size: 1.2rem;
   position: relative;
@@ -154,14 +155,14 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
 }
 
 .color-button:hover {
-  border: 5px solid #232323;
+  border: 5px solid var(--color-border);
   border-top-width: 2px;
   border-left-width: 2px;
 }
 
 .color-button:active,
 .color-button-active {
-  border: 3px solid #232323 !important;
+  border: 3px solid var(--color-border) !important;
 }
 
 .color-button span {

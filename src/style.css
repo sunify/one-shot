@@ -1,9 +1,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Commissioner:wght@100..900&display=swap');
 
 :root {
+  --color-text: #000;
+  --color-title: #000;
+  --color-bg: #FFF;
+  --color-border: #000;
+  --color-active-check: #efefef;
+
   font-family: "Commissioner", sans-serif;
-  color: #000;
-  background: #ffffff;
+  color: var(--color-text);
+  background: var(--color-bg);
   line-height: 1.4;
   font-weight: 400;
   color-scheme: light;
@@ -19,14 +25,14 @@
 
 ::selection {
   background: var(--selection-color, var(--top-color));
-  color: #000;
+  color: var(--color-text);
 }
 
 body {
   margin: 0 auto;
   width: 700px;
-  background: #FFF;
-  color: #000;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 button,
@@ -43,12 +49,12 @@ h2,
 }
 
 .button {
-  border: 5px solid #000;
+  border: 5px solid var(--color-border);
   border-top-width: 2px;
   border-left-width: 2px;
   border-radius: 8px;
-  background: #ffffff;
-  color: #000;
+  background: var(--color-bg);
+  color: var(--color-text);
   cursor: pointer;
 }
 
@@ -71,9 +77,9 @@ h2,
 
 .input {
   width: 100%;
-  border: 2px solid #000;
-  background: #ffffff;
-  color: #000;
+  border: 2px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
   border-radius: 6px;
   padding: 10px 12px;
   min-height: 44px;
@@ -87,13 +93,13 @@ h2,
 }
 
 .select::picker-icon {
-  color: #000;
+  color: var(--color-text);
   translate: -2px 0;
 }
 
 .input:focus-visible,
 .select:focus-visible,
 .primary:focus-visible {
-  outline: 2px solid #000;
+  outline: 2px solid var(--color-border);
   outline-offset: 2px;
 }
