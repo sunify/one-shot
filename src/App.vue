@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, watch, ref } from 'vue'
 import throttle from 'lodash-es/throttle'
 import DevicePreview from './components/DevicePreview.vue'
 import ColorControl from './components/controls/ColorControl.vue'
@@ -92,6 +92,50 @@ watch(
   },
   { deep: true },
 )
+
+const currentDeviceAnimation = ref(null);
+function handleGestureFieldOpen(gestureField) {
+  currentDeviceAnimation.value = gestureField.animation;
+  console.log(currentDeviceAnimation.value);
+}
+
+function handleGestureFieldClose() {
+  currentDeviceAnimation.value = null;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+async function runAnimation(animation) {
+  if (animation.type === 'tap') {
+    for (let i = 0; i < animation.count; i += 1) {
+      isDevicePressed.value = true;
+      await delay(100);
+      isDevicePressed.value = false;
+      await delay(200);
+    }
+  } else if (animation.type === 'press') {
+    isDevicePressed.value = true;
+    await delay(700);
+    isDevicePressed.value = false;
+  }
+}
+
+let animationInterval;
+watch(currentDeviceAnimation, () => {
+  clearInterval(animationInterval);
+  if (currentDeviceAnimation.value !== null) {
+    const runFrame = () => {
+      runAnimation(currentDeviceAnimation.value);
+    };
+    runFrame();
+    animationInterval = setInterval(runFrame, 2000);
+  } else {
+    isDevicePressed.value = false;
+  }
+});
 </script>
 
 <template>
@@ -124,6 +168,8 @@ watch(
           :is-mac-like="isMacLike"
           :label="gestureField.label"
           :modifier-options="modifierOptions"
+          @open="handleGestureFieldOpen(gestureField)"
+          @close="handleGestureFieldClose"
           @invalid-hotkey-char="handleInvalidHotkeyChar"
           @update:gesture="updateGesture(gestureField.key, $event)"
         />

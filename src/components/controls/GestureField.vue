@@ -31,7 +31,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:gesture', 'invalid-hotkey-char'])
+const emit = defineEmits(['update:gesture', 'invalid-hotkey-char', 'open', 'close'])
 
 const showHotkeyEditor = ref(isEditableCharHotkey(props.gesture));
 
@@ -95,7 +95,16 @@ function updateGesture(value, close) {
     code: Number(value.replace('consumer:', '')),
     modifiers: 0,
   })
-  close?.();
+  close?.()
+}
+
+function handleOpen() {
+  showHotkeyEditor.value = isEditableCharHotkey(props.gesture)
+  emit('open')
+}
+
+function handleClose() {
+  emit('close')
 }
 </script>
 
@@ -104,11 +113,12 @@ function updateGesture(value, close) {
     <span class="gesture-trigger-label">
       {{ label }}
     </span>
-    <DropdownPanel @open="showHotkeyEditor = isEditableCharHotkey(gesture)">
-      <template #trigger="{ toggle, triggerRef }">
+    <DropdownPanel @open="handleOpen" @close="handleClose">
+      <template #trigger="{ toggle, triggerRef, isOpen }">
         <button
           :ref="triggerRef"
           class="button gesture-trigger"
+          :class="{ active: isOpen }"
           type="button"
           @click="toggle"
         >

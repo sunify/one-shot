@@ -39,11 +39,12 @@ export function useConfiguratorState() {
   const supportsLighting = computed(() => deviceType.value === DEVICE_TYPES.oneShot)
 
   const gestureFields = computed(() => [
-    { key: 'singleTap', label: 'Одиночное нажатие' },
-    { key: 'doubleTap', label: 'Двойное нажатие' },
+    { key: 'singleTap', label: 'Одиночное нажатие', animation: { type: 'tap', count: 1 } },
+    { key: 'doubleTap', label: 'Двойное нажатие', animation: { type: 'tap', count: 2 } },
     {
       key: 'tripleTap',
       label: deviceType.value === DEVICE_TYPES.magicButton ? 'Долгое нажатие' : 'Тройное нажатие',
+      animation: deviceType.value === DEVICE_TYPES.magicButton ? { type: 'press' } : { type: 'tap', count: 3 }
     },
   ])
 
