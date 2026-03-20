@@ -97,6 +97,25 @@ void sendConfigFrame() {
   sendFrame(Serial, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
 }
 
+void powerOnBlink() {
+  fill_solid(leds, NUM_LEDS, baseColor);
+
+  FastLED.setBrightness(30);
+  FastLED.show();
+  delay(150);
+  FastLED.setBrightness(10);
+  FastLED.show();
+  delay(50);
+  FastLED.setBrightness(50);
+  FastLED.show();
+  delay(50);
+  FastLED.setBrightness(0);
+  FastLED.show();
+  delay(50);
+  FastLED.setBrightness(brightnessLevels[brightnessStep]);
+  FastLED.show();
+}
+
 void blinkFeedback(uint8_t count) {
   CRGB feedbackColor = blend(baseColor, CRGB::White, 96);
 
@@ -116,7 +135,11 @@ void nextBrightness() {
   brightnessStep++;
   if (brightnessStep >= 5) brightnessStep = 0;
 
-  blinkFeedback(brightnessStep == 0 ? 3 : 1);
+  if (brightnessStep == 0) {
+    powerOnBlink();
+  } else {
+    blinkFeedback(1);
+  }
 }
 
 void pressModifiers(uint8_t modifiers) {
@@ -353,6 +376,8 @@ void setup() {
   updateBaseColor();
 
   Serial.begin(SERIAL_BAUD);
+
+  powerOnBlink();
 }
 
 void loop() {
