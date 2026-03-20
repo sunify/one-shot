@@ -47,6 +47,9 @@ bool longPressHandled = false;
 uint8_t brightnessStep = 0;
 uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
 
+uint32_t releaseBoostStart = 0;
+const uint16_t BOOST_DURATION = 1000;
+
 DeviceConfig defaultConfig() {
   DeviceConfig cfg;
   cfg.version = CONFIG_VERSION;
@@ -165,6 +168,7 @@ void updateButton() {
 
     if (state == HIGH) {
       sendButtonEvent(Serial, BUTTON_RELEASED);
+      releaseBoostStart = now;
       if (!longPressHandled) {
         uint32_t pressDuration = now - pressStart;
 
@@ -206,6 +210,19 @@ void updateLEDs() {
 
   uint8_t b1 = beatsin8(15, 110, 255, 0, 0);
   uint8_t b2 = beatsin8(15, 110, 255, 0, 88);
+
+  // On release: blend in a fast pulse that fades in and out over BOOST_DURATION
+  if (releaseBoostStart > 0) {
+    uint32_t elapsed = millis() - releaseBoostStart;
+    if (elapsed < BOOST_DURATION) {
+      uint8_t t = elapsed * 255 / BOOST_DURATION;
+      uint8_t mix = cubicwave8(t);  // 0→peak→0 smoothly
+      uint8_t fast1 = beatsin8(180, 110, 255, 0, 0);
+      uint8_t fast2 = beatsin8(180, 110, 255, 0, 88);
+      b1 = lerp8by8(b1, fast1, mix);
+      b2 = lerp8by8(b2, fast2, mix);
+    }
+  }
 
   b1 = scale8(b1, baseBrightness);
   b2 = scale8(b2, baseBrightness);
