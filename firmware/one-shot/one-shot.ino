@@ -48,7 +48,7 @@ uint8_t brightnessStep = 0;
 uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
 
 uint32_t releaseBoostStart = 0;
-const uint16_t BOOST_DURATION = 1000;
+const uint16_t BOOST_DURATION = 500;
 
 DeviceConfig defaultConfig() {
   DeviceConfig cfg;
@@ -250,11 +250,19 @@ void updateLEDs() {
   b1 = scale8(b1, baseBrightness);
   b2 = scale8(b2, baseBrightness);
 
-  leds[0] = baseColor;
-  leds[0].nscale8_video(b1);
+  CHSV baseHSV = rgb2hsv_approximate(baseColor);
+  uint8_t hueShift = beatsin8(4, 0, 255);
 
-  leds[1] = baseColor;
-  leds[1].nscale8_video(b2);
+  CHSV hsv0 = baseHSV;
+  hsv0.hue += hueShift;
+  // hsv0.val = b1;
+
+  CHSV hsv1 = baseHSV;
+  hsv1.hue += hueShift + 30;
+  // hsv1.val = b2;
+
+  hsv2rgb_rainbow(hsv0, leds[0]);
+  hsv2rgb_rainbow(hsv1, leds[1]);
 
   FastLED.show();
 }
