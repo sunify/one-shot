@@ -3,11 +3,19 @@
 #include <EEPROM.h>
 #include "device_protocol.h"
 
+#ifndef BTN_GROUND_PIN
 #define BTN_GROUND_PIN 9
+#endif
+#ifndef BTN_INPUT_PIN
 #define BTN_INPUT_PIN 10
+#endif
 
+#ifndef DATA_PIN
 #define DATA_PIN A3
+#endif
+#ifndef NUM_LEDS
 #define NUM_LEDS 2
+#endif
 #define LED_TYPE WS2812
 #define COLOR_ORDER GRB
 
@@ -231,30 +239,26 @@ void updateLEDs() {
     return;
   }
 
-  uint8_t b1 = beatsin8(15, 110, 255, 0, 0);
-  uint8_t b2 = beatsin8(15, 110, 255, 0, 88);
+  uint8_t phaseStep = NUM_LEDS > 1 ? 256 / NUM_LEDS : 0;
 
-  // On release: blend in a fast pulse that fades in and out over BOOST_DURATION
-  if (releaseBoostStart > 0) {
-    uint32_t elapsed = millis() - releaseBoostStart;
-    if (elapsed < BOOST_DURATION) {
-      uint8_t t = elapsed * 255 / BOOST_DURATION;
-      uint8_t mix = cubicwave8(t);  // 0→peak→0 smoothly
-      uint8_t fast1 = beatsin8(180, 110, 255, 0, 0);
-      uint8_t fast2 = beatsin8(180, 110, 255, 0, 88);
-      b1 = lerp8by8(b1, fast1, mix);
-      b2 = lerp8by8(b2, fast2, mix);
+  for (uint8_t i = 0; i < NUM_LEDS; i++) {
+    uint8_t phase = i * phaseStep;
+    uint8_t b = beatsin8(15, 110, 255, 0, phase);
+
+    if (releaseBoostStart > 0) {
+      uint32_t elapsed = millis() - releaseBoostStart;
+      if (elapsed < BOOST_DURATION) {
+        uint8_t t = elapsed * 255 / BOOST_DURATION;
+        uint8_t mix = cubicwave8(t);
+        uint8_t fast = beatsin8(180, 110, 255, 0, phase);
+        b = lerp8by8(b, fast, mix);
+      }
     }
+
+    b = scale8(b, baseBrightness);
+    leds[i] = baseColor;
+    leds[i].nscale8_video(b);
   }
-
-  b1 = scale8(b1, baseBrightness);
-  b2 = scale8(b2, baseBrightness);
-
-  leds[0] = baseColor;
-  leds[0].nscale8_video(b1);
-
-  leds[1] = baseColor;
-  leds[1].nscale8_video(b2);
 
   FastLED.show();
 }
