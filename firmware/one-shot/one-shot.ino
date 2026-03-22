@@ -36,10 +36,19 @@ struct __attribute__((packed)) DeviceConfig {
   uint8_t green;
   uint8_t blue;
   uint8_t breathingEnabled;
+#ifdef ROTARY_ENABLED
+  GestureAction encoderCW;
+  GestureAction encoderCCW;
+  uint8_t encoderSensitivity;
+#endif
   uint8_t crc;
 };
 
+#ifdef ROTARY_ENABLED
+const uint8_t CONFIG_VERSION = 4;
+#else
 const uint8_t CONFIG_VERSION = 3;
+#endif
 const int EEPROM_ADDRESS = 0;
 DeviceConfig config;
 
@@ -80,6 +89,11 @@ DeviceConfig defaultConfig() {
   cfg.green = 255;
   cfg.blue = 210;
   cfg.breathingEnabled = 1;
+#ifdef ROTARY_ENABLED
+  cfg.encoderCW = {ACTION_TYPE_MOUSE, MOUSE_AXIS_SCROLL | (2 << 8), MODIFIER_GUI};
+  cfg.encoderCCW = {ACTION_TYPE_MOUSE, MOUSE_AXIS_SCROLL | (2 << 8), MODIFIER_GUI};
+  cfg.encoderSensitivity = 4;
+#endif
   cfg.crc = 0;
   return cfg;
 }
@@ -169,11 +183,26 @@ void pressModifiers(uint8_t modifiers) {
   if (modifiers & MODIFIER_GUI) Keyboard.press(KEY_LEFT_GUI);
 }
 
-void sendGestureAction(uint8_t actionType, uint16_t actionCode, uint8_t modifiers) {
+void sendGestureAction(uint8_t actionType, uint16_t actionCode, uint8_t modifiers, int8_t direction = 1) {
   if (actionType == ACTION_TYPE_HOTKEY) {
     pressModifiers(modifiers);
     Keyboard.press(static_cast<KeyboardKeycode>(actionCode));
     delay(12);
+    Keyboard.releaseAll();
+    return;
+  }
+
+  if (actionType == ACTION_TYPE_MOUSE) {
+    uint8_t axis = actionCode & 0xFF;
+    int8_t amount = (int8_t)((actionCode >> 8) & 0xFF) * direction;
+    pressModifiers(modifiers);
+    if (axis == MOUSE_AXIS_SCROLL) {
+      Mouse.move(0, 0, amount);
+    } else if (axis == MOUSE_AXIS_MOVE_X) {
+      Mouse.move(amount, 0, 0);
+    } else if (axis == MOUSE_AXIS_MOVE_Y) {
+      Mouse.move(0, amount, 0);
+    }
     Keyboard.releaseAll();
     return;
   }
@@ -243,27 +272,19 @@ void updateButton() {
 
 #ifdef ROTARY_ENABLED
 void updateRotary() {
-  long newPosition = rotaryEncoder.read() / 4;
+  long newPosition = rotaryEncoder.read() / config.encoderSensitivity;
 
   if (newPosition != rotaryPosition) {
     long diff = newPosition - rotaryPosition;
     rotaryPosition = newPosition;
 
-    if (diff > 0) {
-      phaseDirection = 1;
-      phaseVelocity = min(phaseVelocity + 2, (int16_t)12);
-      // Consumer.write(MEDIA_VOLUME_UP);
-      Keyboard.press(KEY_LEFT_GUI);
-      Mouse.move(0, 0, 2);
-      Keyboard.release(KEY_LEFT_GUI);
-    } else {
-      phaseDirection = -1;
-      phaseVelocity = min(phaseVelocity + 2, (int16_t)12);
-      // Consumer.write(MEDIA_VOLUME_DOWN);
-      Keyboard.press(KEY_LEFT_GUI);
-      Mouse.move(0, 0, -2);
-      Keyboard.release(KEY_LEFT_GUI);
-    }
+    GestureAction action = diff > 0 ? config.encoderCW : config.encoderCCW;
+    int8_t dir = diff > 0 ? 1 : -1;
+
+    phaseDirection = dir;
+    phaseVelocity = min(phaseVelocity + 2, (int16_t)12);
+
+    sendGestureAction(action.type, action.code, action.modifiers, dir);
     lastBoostTime = millis();
   }
 

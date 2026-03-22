@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { HOTKEY_KEY_OPTIONS } from '../../protocol'
+import { ACTION_TYPES, HOTKEY_KEY_OPTIONS, MOUSE_OPTIONS } from '../../protocol'
 
 const props = defineProps({
   gesture: {
@@ -14,6 +14,10 @@ const props = defineProps({
   modifierOptions: {
     type: Array,
     required: true,
+  },
+  showMouseOptions: {
+    type: Boolean,
+    default: false,
   },
 })
 
@@ -78,10 +82,40 @@ function updateModifiers(optionValue, checked) {
   })
 }
 
+const isMouse = computed(() => props.gesture.type === ACTION_TYPES.mouse)
+const mouseAxis = computed(() => props.gesture.code & 0xff)
+const mouseAmount = computed(() => (props.gesture.code >> 8) & 0xff || 2)
+
+const selectValue = computed(() => {
+  if (isMouse.value) {
+    return `mouse:${mouseAxis.value}`
+  }
+  return String(props.gesture.code)
+})
+
 function updateKey(value) {
+  if (value.startsWith('mouse:')) {
+    const axis = Number(value.replace('mouse:', ''))
+    emit('update:gesture', {
+      type: ACTION_TYPES.mouse,
+      code: axis | (mouseAmount.value << 8),
+      modifiers: props.gesture.modifiers,
+    })
+    return
+  }
+
+  emit('update:gesture', {
+    type: ACTION_TYPES.hotkey,
+    code: Number(value),
+    modifiers: props.gesture.modifiers,
+  })
+}
+
+function updateAmount(value) {
+  const clamped = Math.max(1, Math.min(20, Number(value)))
   emit('update:gesture', {
     ...props.gesture,
-    code: Number(value),
+    code: mouseAxis.value | (clamped << 8),
   })
 }
 </script>
@@ -103,14 +137,30 @@ function updateKey(value) {
         </label>
       </div>
       <select
-        :value="gesture.code"
+        :value="selectValue"
         class="input select hotkey-char-input"
         @change="updateKey($event.target.value)"
       >
-        <option v-for="option in HOTKEY_KEY_OPTIONS" :key="option.code" :value="option.code">
+        <option v-for="option in HOTKEY_KEY_OPTIONS" :key="option.code" :value="String(option.code)">
           {{ option.label }}
         </option>
+        <optgroup v-if="showMouseOptions" label="Мышь">
+          <option v-for="opt in MOUSE_OPTIONS" :key="opt.value" :value="`mouse:${opt.value}`">
+            {{ opt.label }}
+          </option>
+        </optgroup>
       </select>
+    </div>
+    <div v-if="isMouse" class="hotkey-row">
+      <label class="amount-label">Величина</label>
+      <input
+        type="number"
+        class="input amount-input"
+        min="1"
+        max="20"
+        :value="mouseAmount"
+        @input="updateAmount($event.target.value)"
+      />
     </div>
   </div>
 </template>
@@ -203,4 +253,14 @@ function updateKey(value) {
   width: auto;
 }
 
+.amount-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+}
+
+.amount-input {
+  width: 64px;
+}
 </style>

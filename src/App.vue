@@ -171,6 +171,7 @@ watch(currentDeviceAnimation, () => {
           :is-mac-like="isMacLike"
           :label="gestureField.label"
           :modifier-options="modifierOptions"
+          :show-mouse-options="gestureField.key.startsWith('encoder')"
           @open="handleGestureFieldOpen(gestureField)"
           @close="handleGestureFieldClose"
           @invalid-hotkey-char="handleInvalidHotkeyChar"

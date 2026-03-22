@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { ACTION_TYPES, formatHotkey, isEditableCharHotkey, toHexCode } from '../../protocol'
+import { ACTION_TYPES, formatHotkey, formatMouseAction, isEditableCharHotkey, toHexCode } from '../../protocol'
 import DropdownPanel from './DropdownPanel.vue'
 import HotkeyEditor from './HotkeyEditor.vue'
 
@@ -29,11 +29,15 @@ const props = defineProps({
     type: Array,
     required: true,
   },
+  showMouseOptions: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['update:gesture', 'invalid-hotkey-char', 'open', 'close'])
 
-const showHotkeyEditor = ref(isEditableCharHotkey(props.gesture));
+const showHotkeyEditor = ref(isEditableCharHotkey(props.gesture) || props.gesture?.type === ACTION_TYPES.mouse);
 
 function consumerLabel(code) {
   const option = props.gestureOptions.find((item) => item.value === `consumer:${code}`)
@@ -49,32 +53,30 @@ const currentActionLabel = computed(() => {
     return formatHotkey(props.gesture)
   }
 
+  if (props.gesture.type === ACTION_TYPES.mouse) {
+    return formatMouseAction(props.gesture)
+  }
+
   return consumerLabel(props.gesture.code)
 })
 
 function gestureSelectValue() {
-  if (props.gesture.type === ACTION_TYPES.hotkey) {
+  if (props.gesture.type === ACTION_TYPES.hotkey || props.gesture.type === ACTION_TYPES.mouse) {
     return props.hotkeySelectValue
   }
 
   return `consumer:${props.gesture.code}`
 }
 
-function gestureSelectLabel() {
-  if (props.gesture.type === ACTION_TYPES.hotkey) {
-    return 'Горячая клавиша'
-  }
-
-  return props.gesture.label
-}
-
 function updateGesture(value, close) {
   if (value === props.hotkeySelectValue) {
     showHotkeyEditor.value = true;
     emit('update:gesture', {
-      type: ACTION_TYPES.hotkey,
-      code: props.gesture.type === ACTION_TYPES.hotkey ? props.gesture.code : 0x04,
-      modifiers: props.gesture.type === ACTION_TYPES.hotkey ? props.gesture.modifiers : 0,
+      type: props.gesture.type === ACTION_TYPES.mouse ? ACTION_TYPES.mouse : ACTION_TYPES.hotkey,
+      code: (props.gesture.type === ACTION_TYPES.hotkey || props.gesture.type === ACTION_TYPES.mouse)
+        ? props.gesture.code : 0x04,
+      modifiers: (props.gesture.type === ACTION_TYPES.hotkey || props.gesture.type === ACTION_TYPES.mouse)
+        ? props.gesture.modifiers : 0,
     })
     return
   }
@@ -99,7 +101,7 @@ function updateGesture(value, close) {
 }
 
 function handleOpen() {
-  showHotkeyEditor.value = isEditableCharHotkey(props.gesture)
+  showHotkeyEditor.value = isEditableCharHotkey(props.gesture) || props.gesture?.type === ACTION_TYPES.mouse
   emit('open')
 }
 
@@ -146,12 +148,13 @@ function handleClose() {
         </ul>
         <template v-else>
           <button class="back-button" @click="showHotkeyEditor = false">
-            ← {{ gestureSelectLabel() }}
+            ← Горячая клавиша
           </button>
           <HotkeyEditor
             :gesture="gesture"
             :is-mac-like="isMacLike"
             :modifier-options="modifierOptions"
+            :show-mouse-options="showMouseOptions"
             @invalid-char="$emit('invalid-hotkey-char')"
             @update:gesture="$emit('update:gesture', $event)"
           />

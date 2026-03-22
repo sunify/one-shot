@@ -13,6 +13,11 @@ const uint8_t DEVICE_TYPE_MAGIC_BUTTON = 0x02;
 
 const uint8_t ACTION_TYPE_CONSUMER = 0x01;
 const uint8_t ACTION_TYPE_HOTKEY = 0x02;
+const uint8_t ACTION_TYPE_MOUSE = 0x03;
+
+const uint8_t MOUSE_AXIS_SCROLL = 0x00;
+const uint8_t MOUSE_AXIS_MOVE_X = 0x01;
+const uint8_t MOUSE_AXIS_MOVE_Y = 0x02;
 
 const uint8_t MODIFIER_CTRL = 0x01;
 const uint8_t MODIFIER_SHIFT = 0x02;
