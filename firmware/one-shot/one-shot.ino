@@ -294,7 +294,7 @@ void updateLEDs() {
     uint8_t phase = i * phaseStep;
 #ifdef ROTARY_ENABLED
     uint8_t angle = phase + (uint8_t)(manualPhase >> 2);
-    uint8_t b = beatsin8(15, 110, 255, 0, angle);
+    uint8_t b = scale8(sin8(angle), 145) + 110;
 #else
     uint8_t b = beatsin8(15, 110, 255, 0, phase);
 #endif
@@ -305,7 +305,8 @@ void updateLEDs() {
         uint8_t t = elapsed * 255 / BOOST_DURATION;
         uint8_t mix = cubicwave8(t);
 #ifdef ROTARY_ENABLED
-        uint8_t fast = beatsin8(180, 110, 255, 0, phase * phaseDirection);
+        uint8_t boostAngle = phase * phaseDirection + (uint8_t)(manualPhase >> 1);
+        uint8_t fast = scale8(sin8(boostAngle), 145) + 110;
 #else
         uint8_t fast = beatsin8(180, 110, 255, 0, phase);
 #endif
