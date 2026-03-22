@@ -97,9 +97,19 @@ inline void sendStatusFrame(Stream &serialPort, uint8_t cmd, uint8_t status) {
   sendFrame(serialPort, cmd, payload, sizeof(payload));
 }
 
-inline void sendPingFrame(Stream &serialPort, uint8_t deviceType) {
-  uint8_t payload[2] = {STATUS_OK, deviceType};
-  sendFrame(serialPort, CMD_PONG, payload, sizeof(payload));
+inline void sendPingFrame(Stream &serialPort, uint8_t deviceType, const char *productName = nullptr) {
+  if (productName) {
+    uint8_t nameLen = strlen(productName);
+    uint8_t payloadLen = 2 + nameLen;
+    uint8_t payload[64];
+    payload[0] = STATUS_OK;
+    payload[1] = deviceType;
+    memcpy(payload + 2, productName, nameLen);
+    sendFrame(serialPort, CMD_PONG, payload, payloadLen);
+  } else {
+    uint8_t payload[2] = {STATUS_OK, deviceType};
+    sendFrame(serialPort, CMD_PONG, payload, sizeof(payload));
+  }
 }
 
 inline void sendButtonEvent(Stream &serialPort, uint8_t state) {

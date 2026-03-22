@@ -44,6 +44,13 @@ case "$TARGET" in
     NUM_LEDS=$(jq -r '.num_leds' "$PROFILE_FILE")
 
     EXTRA_FLAGS="-DBTN_GROUND_PIN=${BTN_GROUND_PIN} -DBTN_INPUT_PIN=${BTN_INPUT_PIN} -DDATA_PIN=${DATA_PIN} -DNUM_LEDS=${NUM_LEDS}"
+
+    ROTARY_ENABLED=$(jq -r '.rotary_enabled // false' "$PROFILE_FILE")
+    if [ "$ROTARY_ENABLED" = "true" ]; then
+      ROTARY_A_PIN=$(jq -r '.rotary_a_pin' "$PROFILE_FILE")
+      ROTARY_B_PIN=$(jq -r '.rotary_b_pin' "$PROFILE_FILE")
+      EXTRA_FLAGS="${EXTRA_FLAGS} -DROTARY_ENABLED -DROTARY_A_PIN=${ROTARY_A_PIN} -DROTARY_B_PIN=${ROTARY_B_PIN}"
+    fi
     ;;
   magic-button)
     TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON:-esp32:esp32:esp32s3}"
@@ -90,7 +97,27 @@ compile_magic_button() {
 
 if [ "$MODE" = "upload" ]; then
   PORTS_JSON=$(arduino-cli board list --format json 2>/dev/null)
+
+  # Build serial->product name map from ioreg
+  USB_NAMES=$(ioreg -p IOUSB -l 2>/dev/null | awk '
+    /"USB Product Name"/ { gsub(/.*= "/, ""); gsub(/"/, ""); name=$0 }
+    /"USB Serial Number"/ { gsub(/.*= "/, ""); gsub(/"/, ""); if (name) print $0 "|" name; name="" }
+  ')
+
   PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)") | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
+
+  # Enrich ports with USB product names
+  ENRICHED_PORTS=""
+  echo "$PORTS" | while IFS='|' read -r addr board_name hw_id; do
+    usb_name=$(echo "$USB_NAMES" | grep "^${hw_id}|" | head -1 | cut -d'|' -f2)
+    if [ -n "$usb_name" ]; then
+      printf '%s\n' "$addr|$usb_name|$board_name"
+    else
+      printf '%s\n' "$addr|$board_name|$hw_id"
+    fi
+  done > /tmp/oneshot_ports.tmp
+  PORTS=$(cat /tmp/oneshot_ports.tmp)
+  rm -f /tmp/oneshot_ports.tmp
 
   if [ -z "$PORTS" ]; then
     echo "No USB serial ports found." >&2
@@ -101,14 +128,14 @@ if [ "$MODE" = "upload" ]; then
 
   if [ "$PORT_COUNT" -eq 1 ]; then
     TARGET_PORT=$(echo "$PORTS" | cut -d'|' -f1)
-    PORT_NAME=$(echo "$PORTS" | cut -d'|' -f2)
-    PORT_HW=$(echo "$PORTS" | cut -d'|' -f3)
-    echo "Using port: $TARGET_PORT ($PORT_NAME, $PORT_HW)"
+    PORT_LABEL=$(echo "$PORTS" | cut -d'|' -f2)
+    PORT_EXTRA=$(echo "$PORTS" | cut -d'|' -f3)
+    echo "Using port: $TARGET_PORT ($PORT_LABEL, $PORT_EXTRA)"
   else
     echo "Select port:"
     i=1
-    echo "$PORTS" | while IFS='|' read -r addr name hw; do
-      echo "  $i) $addr ($name, $hw)"
+    echo "$PORTS" | while IFS='|' read -r addr label extra; do
+      echo "  $i) $addr ($label, $extra)"
       i=$((i + 1))
     done
 

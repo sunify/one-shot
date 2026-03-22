@@ -58,6 +58,18 @@ uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
 uint32_t releaseBoostStart = 0;
 const uint16_t BOOST_DURATION = 1000;
 
+#ifdef ROTARY_ENABLED
+#include <Encoder.h>
+Encoder rotaryEncoder(ROTARY_A_PIN, ROTARY_B_PIN);
+long rotaryPosition = 0;
+const int16_t BASE_VELOCITY = 3;
+int16_t phaseVelocity = BASE_VELOCITY;
+int8_t phaseDirection = 1;
+uint16_t manualPhase = 0;
+uint32_t lastBoostTime = 0;
+const uint16_t VELOCITY_DECAY_MS = 80;
+#endif
+
 DeviceConfig defaultConfig() {
   DeviceConfig cfg;
   cfg.version = CONFIG_VERSION;
@@ -192,6 +204,7 @@ void updateButton() {
     lastState = state;
 
     if (state == LOW) {
+      releaseBoostStart = now;
       sendButtonEvent(Serial, BUTTON_PRESSED);
       pressStart = now;
       longPressHandled = false;
@@ -199,7 +212,6 @@ void updateButton() {
 
     if (state == HIGH) {
       sendButtonEvent(Serial, BUTTON_RELEASED);
-      releaseBoostStart = now;
       if (!longPressHandled) {
         uint32_t pressDuration = now - pressStart;
 
@@ -229,6 +241,43 @@ void updateButton() {
   }
 }
 
+#ifdef ROTARY_ENABLED
+void updateRotary() {
+  long newPosition = rotaryEncoder.read() / 4;
+
+  if (newPosition != rotaryPosition) {
+    long diff = newPosition - rotaryPosition;
+    rotaryPosition = newPosition;
+
+    if (diff > 0) {
+      phaseDirection = 1;
+      phaseVelocity = min(phaseVelocity + 2, (int16_t)12);
+      // Consumer.write(MEDIA_VOLUME_UP);
+      Keyboard.press(KEY_LEFT_GUI);
+      Mouse.move(0, 0, 2);
+      Keyboard.release(KEY_LEFT_GUI);
+    } else {
+      phaseDirection = -1;
+      phaseVelocity = min(phaseVelocity + 2, (int16_t)12);
+      // Consumer.write(MEDIA_VOLUME_DOWN);
+      Keyboard.press(KEY_LEFT_GUI);
+      Mouse.move(0, 0, -2);
+      Keyboard.release(KEY_LEFT_GUI);
+    }
+    lastBoostTime = millis();
+  }
+
+  // Decay velocity back to base
+  uint32_t now = millis();
+  if (phaseVelocity > BASE_VELOCITY && (now - lastBoostTime) > VELOCITY_DECAY_MS) {
+    phaseVelocity--;
+    lastBoostTime = now;
+  }
+
+  manualPhase += phaseVelocity * phaseDirection;
+}
+#endif
+
 void updateLEDs() {
   uint8_t baseBrightness = brightnessLevels[brightnessStep];
 
@@ -239,18 +288,27 @@ void updateLEDs() {
     return;
   }
 
-  uint8_t phaseStep = NUM_LEDS > 1 ? 256 / NUM_LEDS : 0;
+  uint8_t phaseStep = NUM_LEDS > 1 ? 88 : 0;
 
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
     uint8_t phase = i * phaseStep;
+#ifdef ROTARY_ENABLED
+    uint8_t angle = phase + (uint8_t)(manualPhase >> 2);
+    uint8_t b = beatsin8(15, 110, 255, 0, angle);
+#else
     uint8_t b = beatsin8(15, 110, 255, 0, phase);
+#endif
 
     if (releaseBoostStart > 0) {
       uint32_t elapsed = millis() - releaseBoostStart;
       if (elapsed < BOOST_DURATION) {
         uint8_t t = elapsed * 255 / BOOST_DURATION;
         uint8_t mix = cubicwave8(t);
+#ifdef ROTARY_ENABLED
+        uint8_t fast = beatsin8(180, 110, 255, 0, phase * phaseDirection);
+#else
         uint8_t fast = beatsin8(180, 110, 255, 0, phase);
+#endif
         b = lerp8by8(b, fast, mix);
       }
     }
@@ -357,7 +415,7 @@ void handleSerial() {
       updateBaseColor();
       sendConfigFrame();
     } else if (cmd == CMD_PING) {
-      sendPingFrame(Serial, DEVICE_TYPE_ONE_SHOT);
+      sendPingFrame(Serial, DEVICE_TYPE_ONE_SHOT, USB_PRODUCT);
     } else {
       sendError(Serial, STATUS_BAD_COMMAND);
     }
@@ -375,6 +433,7 @@ void setup() {
 
   Consumer.begin();
   Keyboard.begin();
+  Mouse.begin();
 
   loadConfig();
   updateBaseColor();
@@ -387,6 +446,9 @@ void setup() {
 void loop() {
   handleSerial();
   updateButton();
+#ifdef ROTARY_ENABLED
+  updateRotary();
+#endif
   updateLEDs();
 
   delay(16);

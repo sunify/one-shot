@@ -30,6 +30,7 @@ const {
   isBusy,
   isConnected,
   isConnecting,
+  productName,
   resetConfig,
   saveConfig,
   statusText,
@@ -40,9 +41,11 @@ const {
   isDevicePressed,
 })
 
-const appTitle = computed(() =>
-  isConnected.value ? `Конфигуратор<br />${getDeviceName(deviceType.value)}` : 'Конфигуратор',
-)
+const appTitle = computed(() => {
+  if (!isConnected.value) return 'Конфигуратор'
+  const name = productName.value || getDeviceName(deviceType.value)
+  return `Конфигуратор<br />${name}`
+})
 
 const gestureOptions = MEDIA_KEY_OPTIONS.map((option) => ({
   label: option.label,
