@@ -104,7 +104,7 @@ if [ "$MODE" = "upload" ]; then
     /"USB Serial Number"/ { gsub(/.*= "/, ""); gsub(/"/, ""); if (name) print $0 "|" name; name="" }
   ')
 
-  PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)") | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
+  PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)" and (.matching_boards | length > 0)) | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
 
   # Enrich ports with USB product names
   ENRICHED_PORTS=""
