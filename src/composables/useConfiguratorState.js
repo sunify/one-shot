@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import { ACTION_TYPES, DEVICE_TYPES } from '../protocol'
+import { ACTION_TYPES, DEVICE_TYPES, MOUSE_AXES } from '../protocol'
 
 function cloneGesture(gesture) {
   return {
@@ -37,16 +37,28 @@ export function useConfiguratorState() {
   })
 
   const supportsLighting = computed(() => deviceType.value === DEVICE_TYPES.oneShot)
+  const hasEncoder = computed(() => form.encoderCW != null)
 
-  const gestureFields = computed(() => [
-    { key: 'singleTap', label: 'Одиночное нажатие', animation: { type: 'tap', count: 1 } },
-    { key: 'doubleTap', label: 'Двойное нажатие', animation: { type: 'tap', count: 2 } },
-    {
-      key: 'tripleTap',
-      label: deviceType.value === DEVICE_TYPES.magicButton ? 'Долгое нажатие' : 'Тройное нажатие',
-      animation: deviceType.value === DEVICE_TYPES.magicButton ? { type: 'press' } : { type: 'tap', count: 3 }
-    },
-  ])
+  const gestureFields = computed(() => {
+    const fields = [
+      { key: 'singleTap', label: 'Одиночное нажатие', animation: { type: 'tap', count: 1 } },
+      { key: 'doubleTap', label: 'Двойное нажатие', animation: { type: 'tap', count: 2 } },
+      {
+        key: 'tripleTap',
+        label: deviceType.value === DEVICE_TYPES.magicButton ? 'Долгое нажатие' : 'Тройное нажатие',
+        animation: deviceType.value === DEVICE_TYPES.magicButton ? { type: 'press' } : { type: 'tap', count: 3 }
+      },
+    ]
+
+    if (hasEncoder.value) {
+      fields.push(
+        { key: 'encoderCW', label: 'Энкодер →', animation: null },
+        { key: 'encoderCCW', label: 'Энкодер ←', animation: null },
+      )
+    }
+
+    return fields
+  })
 
   function applyConfig(config) {
     suppressAutoSave.value = true
@@ -62,6 +74,16 @@ export function useConfiguratorState() {
       form.blue = config.blue
       form.breathingEnabled = config.breathingEnabled
     }
+
+    if (config.encoderCW) {
+      form.encoderCW = cloneGesture(config.encoderCW)
+      form.encoderCCW = cloneGesture(config.encoderCCW)
+      form.encoderSensitivity = config.encoderSensitivity
+    } else {
+      delete form.encoderCW
+      delete form.encoderCCW
+      delete form.encoderSensitivity
+    }
   }
 
   function updateGesture(field, gesture) {
@@ -73,6 +95,7 @@ export function useConfiguratorState() {
     deviceType,
     form,
     gestureFields,
+    hasEncoder,
     isDevicePressed,
     selectedColor,
     supportsLighting,

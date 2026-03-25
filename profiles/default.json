@@ -1,0 +1,9 @@
+{
+  "button_ground_pin": "9",
+  "button_input_pin": "10",
+  "data_pin": "A3",
+  "num_leds": 2,
+  "rotary_enabled": false,
+  "usb_product": "One Shot",
+  "usb_manufacturer": "lunyov"
+}

@@ -13,22 +13,49 @@ fi
 
 MODE="${1:-compile}"
 TARGET="${2:-one-shot}"
+PROFILE="${3:-}"
 EXPORT_FLAG=""
+EXTRA_FLAGS=""
 
 case "$TARGET" in
   one-shot)
     TARGET_FQBN="${ARDUINO_FQBN_ONE_SHOT:-${ARDUINO_FQBN:-arduino:avr:leonardo}}"
     TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_ONE_SHOT:-${ARDUINO_SKETCH_PATH:-firmware/one-shot}}"
     TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_ONE_SHOT:-${ARDUINO_BUILD_PATH:-.arduino/build}}"
-    TARGET_PORT="${ARDUINO_PORT_ONE_SHOT:-${ARDUINO_PORT:-}}"
-    TARGET_USB_PRODUCT="${USB_PRODUCT_ONE_SHOT:-${USB_PRODUCT:-One Shot}}"
-    TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_ONE_SHOT:-${USB_MANUFACTURER:-lunyov}}"
+
+    if [ -z "$PROFILE" ]; then
+      PROFILE="default"
+    fi
+
+    PROFILE_FILE="$ROOT_DIR/profiles/${PROFILE}.json"
+    if [ ! -f "$PROFILE_FILE" ]; then
+      echo "Profile not found: $PROFILE_FILE" >&2
+      exit 1
+    fi
+
+    echo "Using profile: $PROFILE"
+
+    TARGET_USB_PRODUCT=$(jq -r '.usb_product' "$PROFILE_FILE")
+    TARGET_USB_MANUFACTURER=$(jq -r '.usb_manufacturer' "$PROFILE_FILE")
+
+    BTN_GROUND_PIN=$(jq -r '.button_ground_pin' "$PROFILE_FILE")
+    BTN_INPUT_PIN=$(jq -r '.button_input_pin' "$PROFILE_FILE")
+    DATA_PIN=$(jq -r '.data_pin' "$PROFILE_FILE")
+    NUM_LEDS=$(jq -r '.num_leds' "$PROFILE_FILE")
+
+    EXTRA_FLAGS="-DBTN_GROUND_PIN=${BTN_GROUND_PIN} -DBTN_INPUT_PIN=${BTN_INPUT_PIN} -DDATA_PIN=${DATA_PIN} -DNUM_LEDS=${NUM_LEDS}"
+
+    ROTARY_ENABLED=$(jq -r '.rotary_enabled // false' "$PROFILE_FILE")
+    if [ "$ROTARY_ENABLED" = "true" ]; then
+      ROTARY_A_PIN=$(jq -r '.rotary_a_pin' "$PROFILE_FILE")
+      ROTARY_B_PIN=$(jq -r '.rotary_b_pin' "$PROFILE_FILE")
+      EXTRA_FLAGS="${EXTRA_FLAGS} -DROTARY_ENABLED -DROTARY_A_PIN=${ROTARY_A_PIN} -DROTARY_B_PIN=${ROTARY_B_PIN}"
+    fi
     ;;
   magic-button)
     TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON:-esp32:esp32:esp32s3}"
     TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON:-firmware/magic-button}"
     TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_MAGIC_BUTTON:-.arduino/build-magic-button}"
-    TARGET_PORT="${ARDUINO_PORT_MAGIC_BUTTON:-}"
     TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON:-Magic Button}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON:-Huntflow}"
     ;;
@@ -42,28 +69,92 @@ if [ "$MODE" = "export" ]; then
   EXPORT_FLAG="--export-binaries"
 fi
 
+compile_one_shot() {
+  EXTRA_ARGS="${1:-}"
+  arduino-cli compile \
+    --config-file "$ROOT_DIR/arduino-cli.yaml" \
+    -b "${TARGET_FQBN}" \
+    --libraries "$ROOT_DIR/libraries" \
+    --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
+    --build-property "build.usb_product=\"${TARGET_USB_PRODUCT}\"" \
+    --build-property "build.usb_manufacturer=\"${TARGET_USB_MANUFACTURER}\"" \
+    --build-property "compiler.cpp.extra_flags=${EXTRA_FLAGS}" \
+    --build-property "compiler.c.extra_flags=${EXTRA_FLAGS}" \
+    ${EXTRA_ARGS} \
+    "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+}
+
+compile_magic_button() {
+  EXTRA_ARGS="${1:-}"
+  arduino-cli compile \
+    --config-file "$ROOT_DIR/arduino-cli.yaml" \
+    -b "${TARGET_FQBN}" \
+    --libraries "$ROOT_DIR/libraries" \
+    --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
+    ${EXTRA_ARGS} \
+    "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+}
+
 if [ "$MODE" = "upload" ]; then
-  if [ -z "${TARGET_PORT:-}" ]; then
-    echo "Port is not set for target: $TARGET" >&2
+  PORTS_JSON=$(arduino-cli board list --format json 2>/dev/null)
+
+  # Build serial->product name map from ioreg
+  USB_NAMES=$(ioreg -p IOUSB -l 2>/dev/null | awk '
+    /"USB Product Name"/ { gsub(/.*= "/, ""); gsub(/"/, ""); name=$0 }
+    /"USB Serial Number"/ { gsub(/.*= "/, ""); gsub(/"/, ""); if (name) print $0 "|" name; name="" }
+  ')
+
+  PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)") | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
+
+  # Enrich ports with USB product names
+  ENRICHED_PORTS=""
+  echo "$PORTS" | while IFS='|' read -r addr board_name hw_id; do
+    usb_name=$(echo "$USB_NAMES" | grep "^${hw_id}|" | head -1 | cut -d'|' -f2)
+    if [ -n "$usb_name" ]; then
+      printf '%s\n' "$addr|$usb_name|$board_name"
+    else
+      printf '%s\n' "$addr|$board_name|$hw_id"
+    fi
+  done > /tmp/oneshot_ports.tmp
+  PORTS=$(cat /tmp/oneshot_ports.tmp)
+  rm -f /tmp/oneshot_ports.tmp
+
+  if [ -z "$PORTS" ]; then
+    echo "No USB serial ports found." >&2
     exit 1
   fi
 
-  if [ "$TARGET" = "magic-button" ]; then
-    arduino-cli compile \
-      --config-file "$ROOT_DIR/arduino-cli.yaml" \
-      -b "${TARGET_FQBN}" \
-      --libraries "$ROOT_DIR/libraries" \
-      --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
-      "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+  PORT_COUNT=$(echo "$PORTS" | wc -l | tr -d ' ')
+
+  if [ "$PORT_COUNT" -eq 1 ]; then
+    TARGET_PORT=$(echo "$PORTS" | cut -d'|' -f1)
+    PORT_LABEL=$(echo "$PORTS" | cut -d'|' -f2)
+    PORT_EXTRA=$(echo "$PORTS" | cut -d'|' -f3)
+    echo "Using port: $TARGET_PORT ($PORT_LABEL, $PORT_EXTRA)"
   else
-    arduino-cli compile \
-      --config-file "$ROOT_DIR/arduino-cli.yaml" \
-      -b "${TARGET_FQBN}" \
-      --libraries "$ROOT_DIR/libraries" \
-      --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
-      --build-property "build.usb_product=\"${TARGET_USB_PRODUCT}\"" \
-      --build-property "build.usb_manufacturer=\"${TARGET_USB_MANUFACTURER}\"" \
-      "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+    echo "Select port:"
+    i=1
+    echo "$PORTS" | while IFS='|' read -r addr label extra; do
+      echo "  $i) $addr ($label, $extra)"
+      i=$((i + 1))
+    done
+
+    printf "Enter number [1-%s]: " "$PORT_COUNT"
+    read -r CHOICE
+
+    if [ -z "$CHOICE" ] || [ "$CHOICE" -lt 1 ] 2>/dev/null || [ "$CHOICE" -gt "$PORT_COUNT" ] 2>/dev/null; then
+      echo "Invalid choice." >&2
+      exit 1
+    fi
+
+    TARGET_PORT=$(echo "$PORTS" | sed -n "${CHOICE}p" | cut -d'|' -f1)
+    echo "Using port: $TARGET_PORT"
+  fi
+
+  if [ "$TARGET" = "magic-button" ]; then
+    compile_magic_button
+  else
+    compile_one_shot
   fi
 
   arduino-cli upload \
@@ -77,21 +168,7 @@ if [ "$MODE" = "upload" ]; then
 fi
 
 if [ "$TARGET" = "magic-button" ]; then
-  arduino-cli compile \
-    --config-file "$ROOT_DIR/arduino-cli.yaml" \
-    -b "${TARGET_FQBN}" \
-    --libraries "$ROOT_DIR/libraries" \
-    --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
-    ${EXPORT_FLAG} \
-    "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+  compile_magic_button "${EXPORT_FLAG}"
 else
-  arduino-cli compile \
-    --config-file "$ROOT_DIR/arduino-cli.yaml" \
-    -b "${TARGET_FQBN}" \
-    --libraries "$ROOT_DIR/libraries" \
-    --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
-    ${EXPORT_FLAG} \
-    --build-property "build.usb_product=\"${TARGET_USB_PRODUCT}\"" \
-    --build-property "build.usb_manufacturer=\"${TARGET_USB_MANUFACTURER}\"" \
-    "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+  compile_one_shot "${EXPORT_FLAG}"
 fi
