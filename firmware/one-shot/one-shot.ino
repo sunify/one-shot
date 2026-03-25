@@ -329,7 +329,7 @@ void updateLEDs() {
         uint8_t boostAngle = phase * phaseDirection + (uint8_t)(manualPhase >> 1);
         uint8_t fast = scale8(sin8(boostAngle), 145) + 110;
 #else
-        uint8_t fast = beatsin8(180, 110, 255, 0, phase);
+        uint8_t fast = beatsin8(180, 80, 255, 0, phase);
 #endif
         b = lerp8by8(b, fast, mix);
       }
