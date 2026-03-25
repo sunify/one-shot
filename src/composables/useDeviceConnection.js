@@ -98,6 +98,7 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
   const hasRememberedPort = ref(false)
   const hasAvailablePort = ref(false)
   const statusText = ref('Устройство не подключено')
+  const productName = ref('')
   const receiveBuffer = ref(new Uint8Array())
   const pendingResolver = ref(null)
 
@@ -278,6 +279,13 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
 
     deviceType.value = frame.payload[1] ?? DEVICE_TYPES.oneShot
     form.deviceType = deviceType.value
+
+    if (frame.payload.length > 2) {
+      productName.value = new TextDecoder().decode(frame.payload.slice(2))
+    } else {
+      productName.value = ''
+    }
+
     statusText.value = 'Подключено'
   }
 
@@ -373,6 +381,7 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
     isConnected,
     isConnecting,
     refreshConfig,
+    productName,
     resetConfig,
     saveConfig,
     statusText,

@@ -29,7 +29,20 @@ export const STATUS = {
 export const ACTION_TYPES = {
   consumer: 0x01,
   hotkey: 0x02,
+  mouse: 0x03,
 }
+
+export const MOUSE_AXES = {
+  scroll: 0x00,
+  moveX: 0x01,
+  moveY: 0x02,
+}
+
+export const MOUSE_OPTIONS = [
+  { label: 'Скролл', value: MOUSE_AXES.scroll },
+  { label: 'Движение мыши X', value: MOUSE_AXES.moveX },
+  { label: 'Движение мыши Y', value: MOUSE_AXES.moveY },
+]
 
 export const DEVICE_TYPES = {
   oneShot: 0x01,
@@ -88,6 +101,7 @@ export const HOTKEY_KEY_OPTIONS = [
 ]
 
 export const HOTKEY_SELECT_VALUE = 'hotkey'
+export const MOUSE_SELECT_VALUE = 'mouse'
 export const MODIFIER_OPTIONS = [
   { label: 'Meta', value: String(MODIFIERS.meta) },
   { label: 'Ctrl', value: String(MODIFIERS.ctrl) },
@@ -342,10 +356,13 @@ export function encodeConfig(config) {
     return new Uint8Array([...payload, crc])
   }
 
-  const payload = new Uint8Array(17)
+  const hasEncoder = config.encoderCW != null
+  const size = hasEncoder ? 26 : 17
+  const version = hasEncoder ? 4 : 3
+  const payload = new Uint8Array(size)
   const view = new DataView(payload.buffer)
 
-  payload[0] = 3
+  payload[0] = version
   writeGesture(view, 1, config.singleTap)
   writeGesture(view, 5, config.doubleTap)
   writeGesture(view, 9, config.tripleTap)
@@ -353,6 +370,12 @@ export function encodeConfig(config) {
   payload[14] = config.green
   payload[15] = config.blue
   payload[16] = config.breathingEnabled ? 1 : 0
+
+  if (hasEncoder) {
+    writeGesture(view, 17, config.encoderCW)
+    writeGesture(view, 21, config.encoderCCW)
+    payload[25] = config.encoderSensitivity
+  }
 
   const crc = computeCrc(payload)
   return new Uint8Array([...payload, crc])
@@ -378,12 +401,14 @@ export function decodeConfig(payload) {
     }
   }
 
-  if (payload.length !== 18) {
+  if (payload.length !== 18 && payload.length !== 27) {
     throw new Error(`Unexpected config payload size: ${payload.length}`)
   }
 
-  const raw = payload.slice(0, 17)
-  const storedCrc = payload[17]
+  const hasEncoder = payload.length === 27
+  const rawLen = hasEncoder ? 26 : 17
+  const raw = payload.slice(0, rawLen)
+  const storedCrc = payload[rawLen]
   const computed = computeCrc(raw)
 
   if (storedCrc !== computed) {
@@ -391,7 +416,7 @@ export function decodeConfig(payload) {
   }
 
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
-  return {
+  const config = {
     version: raw[0],
     deviceType: DEVICE_TYPES.oneShot,
     singleTap: readGesture(view, 1),
@@ -402,6 +427,14 @@ export function decodeConfig(payload) {
     blue: raw[15],
     breathingEnabled: raw[16] === 1,
   }
+
+  if (hasEncoder) {
+    config.encoderCW = readGesture(view, 17)
+    config.encoderCCW = readGesture(view, 21)
+    config.encoderSensitivity = raw[25]
+  }
+
+  return config
 }
 
 export function parseFrames(buffer) {
@@ -445,6 +478,21 @@ export function parseFrames(buffer) {
 
 export function toHexCode(value) {
   return `0x${value.toString(16).toUpperCase().padStart(4, '0')}`
+}
+
+export function formatMouseAction(gesture) {
+  const axis = gesture.code & 0xff
+  const amount = (gesture.code >> 8) & 0xff
+  const option = MOUSE_OPTIONS.find((o) => o.value === axis)
+  const label = option?.label ?? 'Мышь'
+
+  const parts = []
+  if (gesture.modifiers & MODIFIERS.meta) parts.push('⌘')
+  if (gesture.modifiers & MODIFIERS.ctrl) parts.push('Ctrl')
+  if (gesture.modifiers & MODIFIERS.shift) parts.push('Shift')
+  if (gesture.modifiers & MODIFIERS.alt) parts.push('Alt')
+  parts.push(`${label} ×${amount}`)
+  return parts.join('\u2009+\u2009')
 }
 
 export function formatHotkey(gesture) {
