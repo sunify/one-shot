@@ -35,7 +35,7 @@ struct __attribute__((packed)) DeviceConfig {
   uint8_t red;
   uint8_t green;
   uint8_t blue;
-  uint8_t breathingEnabled;
+  uint8_t animationMode;
 #ifdef ROTARY_ENABLED
   GestureAction encoderCW;
   GestureAction encoderCCW;
@@ -45,9 +45,9 @@ struct __attribute__((packed)) DeviceConfig {
 };
 
 #ifdef ROTARY_ENABLED
-const uint8_t CONFIG_VERSION = 4;
+const uint8_t CONFIG_VERSION = 5;
 #else
-const uint8_t CONFIG_VERSION = 3;
+const uint8_t CONFIG_VERSION = 4;
 #endif
 const int EEPROM_ADDRESS = 0;
 DeviceConfig config;
@@ -88,7 +88,7 @@ DeviceConfig defaultConfig() {
   cfg.red = 250;
   cfg.green = 255;
   cfg.blue = 210;
-  cfg.breathingEnabled = 1;
+  cfg.animationMode = 1;
 #ifdef ROTARY_ENABLED
   cfg.encoderCW = {ACTION_TYPE_MOUSE, MOUSE_AXIS_SCROLL | (2 << 8), MODIFIER_GUI};
   cfg.encoderCCW = {ACTION_TYPE_MOUSE, MOUSE_AXIS_SCROLL | (2 << 8), MODIFIER_GUI};
@@ -299,16 +299,7 @@ void updateRotary() {
 }
 #endif
 
-void updateLEDs() {
-  uint8_t baseBrightness = brightnessLevels[brightnessStep];
-
-  if (!config.breathingEnabled) {
-    fill_solid(leds, NUM_LEDS, baseColor);
-    FastLED.setBrightness(baseBrightness);
-    FastLED.show();
-    return;
-  }
-
+void animateBreathing(uint8_t baseBrightness) {
   uint8_t phaseStep = NUM_LEDS > 1 ? 88 : 0;
 
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
@@ -338,6 +329,20 @@ void updateLEDs() {
     b = scale8(b, baseBrightness);
     leds[i] = baseColor;
     leds[i].nscale8_video(b);
+  }
+}
+
+void updateLEDs() {
+  uint8_t baseBrightness = brightnessLevels[brightnessStep];
+
+  switch (config.animationMode) {
+    case 1:
+      animateBreathing(baseBrightness);
+      break;
+    default:
+      fill_solid(leds, NUM_LEDS, baseColor);
+      FastLED.setBrightness(baseBrightness);
+      break;
   }
 
   FastLED.show();

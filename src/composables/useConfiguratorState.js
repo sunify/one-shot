@@ -22,7 +22,7 @@ export function useConfiguratorState() {
     red: 250,
     green: 255,
     blue: 210,
-    breathingEnabled: true,
+    animationMode: 1,
   })
 
   const selectedColor = computed({
@@ -72,7 +72,7 @@ export function useConfiguratorState() {
       form.red = config.red
       form.green = config.green
       form.blue = config.blue
-      form.breathingEnabled = config.breathingEnabled
+      form.animationMode = config.animationMode
     }
 
     if (config.encoderCW) {

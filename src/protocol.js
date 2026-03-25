@@ -32,6 +32,16 @@ export const ACTION_TYPES = {
   mouse: 0x03,
 }
 
+export const ANIMATION_MODES = {
+  static: 0,
+  breathing: 1,
+}
+
+export const ANIMATION_MODE_OPTIONS = [
+  { label: 'Без анимации', value: ANIMATION_MODES.static },
+  { label: 'Дыхание', value: ANIMATION_MODES.breathing },
+]
+
 export const MOUSE_AXES = {
   scroll: 0x00,
   moveX: 0x01,
@@ -358,7 +368,7 @@ export function encodeConfig(config) {
 
   const hasEncoder = config.encoderCW != null
   const size = hasEncoder ? 26 : 17
-  const version = hasEncoder ? 4 : 3
+  const version = hasEncoder ? 5 : 4
   const payload = new Uint8Array(size)
   const view = new DataView(payload.buffer)
 
@@ -369,7 +379,7 @@ export function encodeConfig(config) {
   payload[13] = config.red
   payload[14] = config.green
   payload[15] = config.blue
-  payload[16] = config.breathingEnabled ? 1 : 0
+  payload[16] = config.animationMode
 
   if (hasEncoder) {
     writeGesture(view, 17, config.encoderCW)
@@ -425,7 +435,7 @@ export function decodeConfig(payload) {
     red: raw[13],
     green: raw[14],
     blue: raw[15],
-    breathingEnabled: raw[16] === 1,
+    animationMode: raw[16],
   }
 
   if (hasEncoder) {

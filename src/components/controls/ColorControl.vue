@@ -1,10 +1,11 @@
 <script setup>
 import DropdownPanel from './DropdownPanel.vue';
+import { ANIMATION_MODE_OPTIONS } from '../../protocol';
 
 defineProps({
-  breathingEnabled: {
-    type: Boolean,
-    default: true,
+  animationMode: {
+    type: Number,
+    default: 1,
   },
   modelValue: {
     type: String,
@@ -12,7 +13,7 @@ defineProps({
   },
 })
 
-defineEmits(['update:breathingEnabled', 'update:modelValue'])
+defineEmits(['update:animationMode', 'update:modelValue'])
 </script>
 
 <template>
@@ -32,12 +33,19 @@ defineEmits(['update:breathingEnabled', 'update:modelValue'])
           <div class="color-input-overlay" style="background: var(--top-shade-color); opacity: 0.1;" />
         </label>
         <label class="toggle-field">
-          <input
-            :checked="breathingEnabled"
-            type="checkbox"
-            @change="$emit('update:breathingEnabled', $event.target.checked)"
-          />
-          <span>Дыхание цвета</span>
+          <select
+            :value="animationMode"
+            class="input select"
+            @change="$emit('update:animationMode', Number($event.target.value))"
+          >
+            <option
+              v-for="option in ANIMATION_MODE_OPTIONS"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
         </label>
       </template>
     </DropdownPanel>

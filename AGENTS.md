@@ -13,7 +13,7 @@
 - `CMD_RESET_CONFIG (0x03)` restores defaults and returns config.
 - `CMD_CONFIG (0x81)` returns packed config payload.
 - `CMD_PONG (0x84)` may include device identification payload: `status:u8`, `device_type:u8`.
-- One Shot config payload is 18 bytes total: `version:u8`, then for each gesture `type:u8 code:u16 modifiers:u8`, then `r:u8`, `g:u8`, `b:u8`, `breathing_enabled:u8`, `crc:u8`.
+- One Shot config payload is 18 bytes total: `version:u8`, then for each gesture `type:u8 code:u16 modifiers:u8`, then `r:u8`, `g:u8`, `b:u8`, `animation_mode:u8`, `crc:u8`.
 - Magic Button config payload is 14 bytes total: `version:u8`, then for each gesture `type:u8 code:u16 modifiers:u8`, then `crc:u8`.
 - Gesture action types: `0x01` for consumer preset, `0x02` for one-key hotkey with modifiers.
 
