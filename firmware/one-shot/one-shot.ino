@@ -36,6 +36,7 @@ struct __attribute__((packed)) DeviceConfig {
   uint8_t green;
   uint8_t blue;
   uint8_t animationMode;
+  uint8_t sleepTimeout;
 #ifdef ROTARY_ENABLED
   GestureAction encoderCW;
   GestureAction encoderCCW;
@@ -45,9 +46,11 @@ struct __attribute__((packed)) DeviceConfig {
 };
 
 #ifdef ROTARY_ENABLED
-const uint8_t CONFIG_VERSION = 5;
+const uint8_t CONFIG_VERSION = 6;
+const uint8_t PREV_CONFIG_VERSION = 5;
 #else
-const uint8_t CONFIG_VERSION = 4;
+const uint8_t CONFIG_VERSION = 5;
+const uint8_t PREV_CONFIG_VERSION = 4;
 #endif
 const int EEPROM_ADDRESS = 0;
 DeviceConfig config;
@@ -67,6 +70,9 @@ uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
 uint32_t releaseBoostStart = 0;
 const uint16_t BOOST_DURATION = 1000;
 
+uint32_t lastActivityTime = 0;
+bool isSleeping = false;
+
 #ifdef ROTARY_ENABLED
 #include <Encoder.h>
 Encoder rotaryEncoder(ROTARY_A_PIN, ROTARY_B_PIN);
@@ -79,6 +85,14 @@ uint32_t lastBoostTime = 0;
 const uint16_t VELOCITY_DECAY_MS = 80;
 #endif
 
+void markActivity() {
+  lastActivityTime = millis();
+  if (isSleeping) {
+    isSleeping = false;
+    powerOnBlink();
+  }
+}
+
 DeviceConfig defaultConfig() {
   DeviceConfig cfg;
   cfg.version = CONFIG_VERSION;
@@ -89,6 +103,7 @@ DeviceConfig defaultConfig() {
   cfg.green = 255;
   cfg.blue = 210;
   cfg.animationMode = 1;
+  cfg.sleepTimeout = 0;
 #ifdef ROTARY_ENABLED
   cfg.encoderCW = {ACTION_TYPE_MOUSE, MOUSE_AXIS_SCROLL | (2 << 8), MODIFIER_GUI};
   cfg.encoderCCW = {ACTION_TYPE_MOUSE, MOUSE_AXIS_SCROLL | (2 << 8), MODIFIER_GUI};
@@ -113,13 +128,37 @@ void loadConfig() {
   DeviceConfig stored;
   EEPROM.get(EEPROM_ADDRESS, stored);
 
-  if (!isConfigValid(stored, CONFIG_VERSION)) {
-    stored = defaultConfig();
-    persistConfig(stored);
+  if (isConfigValid(stored, CONFIG_VERSION)) {
+    applyConfig(stored);
     return;
   }
 
-  applyConfig(stored);
+  // Migrate from previous version (without sleepTimeout).
+  // Old struct is 1 byte shorter — read raw bytes at old size and rebuild.
+  const uint8_t OLD_SIZE = sizeof(DeviceConfig) - 1;
+  uint8_t raw[OLD_SIZE];
+  for (uint8_t i = 0; i < OLD_SIZE; i++) {
+    raw[i] = EEPROM.read(EEPROM_ADDRESS + i);
+  }
+
+  if (raw[0] == PREV_CONFIG_VERSION) {
+    uint8_t oldCrc = raw[OLD_SIZE - 1];
+    uint8_t computed = 0;
+    for (uint8_t i = 0; i < OLD_SIZE - 1; i++) {
+      computed = crc8Update(computed, raw[i]);
+    }
+
+    if (oldCrc == computed) {
+      // Copy old fields up to animationMode, insert sleepTimeout=0, skip old crc
+      memcpy(&stored, raw, offsetof(DeviceConfig, sleepTimeout));
+      stored.sleepTimeout = 0;
+      persistConfig(stored);
+      return;
+    }
+  }
+
+  stored = defaultConfig();
+  persistConfig(stored);
 }
 
 void resetConfig() {
@@ -233,6 +272,7 @@ void updateButton() {
     lastState = state;
 
     if (state == LOW) {
+      markActivity();
       releaseBoostStart = now;
       sendButtonEvent(Serial, BUTTON_PRESSED);
       pressStart = now;
@@ -281,6 +321,7 @@ void updateRotary() {
     GestureAction action = diff > 0 ? config.encoderCW : config.encoderCCW;
     int8_t dir = diff > 0 ? 1 : -1;
 
+    markActivity();
     phaseDirection = dir;
     phaseVelocity = min(phaseVelocity + 2, (int16_t)12);
 
@@ -332,7 +373,22 @@ void animateBreathing(uint8_t baseBrightness) {
   }
 }
 
+void updateSleep() {
+  if (config.sleepTimeout == 0 || isSleeping) return;
+
+  uint32_t timeoutMs = (uint32_t)config.sleepTimeout * 3600000UL;
+  if (millis() - lastActivityTime >= timeoutMs) {
+    isSleeping = true;
+  }
+}
+
 void updateLEDs() {
+  if (isSleeping) {
+    FastLED.clear();
+    FastLED.show();
+    return;
+  }
+
   uint8_t baseBrightness = brightnessLevels[brightnessStep];
 
   switch (config.animationMode) {
@@ -375,6 +431,7 @@ void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
 
   persistConfig(nextConfig);
   updateBaseColor();
+  markActivity();
   sendStatusFrame(Serial, CMD_ACK, STATUS_OK);
 }
 
@@ -467,6 +524,7 @@ void setup() {
 
   Serial.begin(SERIAL_BAUD);
 
+  lastActivityTime = millis();
   powerOnBlink();
 }
 
@@ -476,6 +534,7 @@ void loop() {
 #ifdef ROTARY_ENABLED
   updateRotary();
 #endif
+  updateSleep();
   updateLEDs();
 
   delay(16);

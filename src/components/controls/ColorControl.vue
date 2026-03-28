@@ -1,11 +1,15 @@
 <script setup>
 import DropdownPanel from './DropdownPanel.vue';
-import { ANIMATION_MODE_OPTIONS } from '../../protocol';
+import { ANIMATION_MODE_OPTIONS, SLEEP_TIMEOUT_OPTIONS } from '../../protocol';
 
 defineProps({
   animationMode: {
     type: Number,
     default: 1,
+  },
+  sleepTimeout: {
+    type: Number,
+    default: 0,
   },
   modelValue: {
     type: String,
@@ -13,7 +17,7 @@ defineProps({
   },
 })
 
-defineEmits(['update:animationMode', 'update:modelValue'])
+defineEmits(['update:animationMode', 'update:sleepTimeout', 'update:modelValue'])
 </script>
 
 <template>
@@ -40,6 +44,21 @@ defineEmits(['update:animationMode', 'update:modelValue'])
           >
             <option
               v-for="option in ANIMATION_MODE_OPTIONS"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+        <label class="toggle-field">
+          <select
+            :value="sleepTimeout"
+            class="input select"
+            @change="$emit('update:sleepTimeout', Number($event.target.value))"
+          >
+            <option
+              v-for="option in SLEEP_TIMEOUT_OPTIONS"
               :key="option.value"
               :value="option.value"
             >

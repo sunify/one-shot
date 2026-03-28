@@ -156,7 +156,9 @@ watch(currentDeviceAnimation, () => {
         v-if="isConnected && supportsLighting"
         v-model="selectedColor"
         :animation-mode="form.animationMode"
+        :sleep-timeout="form.sleepTimeout"
         @update:animation-mode="form.animationMode = $event"
+        @update:sleep-timeout="form.sleepTimeout = $event"
       />
     </PanelSection>
 

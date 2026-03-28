@@ -23,6 +23,7 @@ export function useConfiguratorState() {
     green: 255,
     blue: 210,
     animationMode: 1,
+    sleepTimeout: 0,
   })
 
   const selectedColor = computed({
@@ -73,6 +74,7 @@ export function useConfiguratorState() {
       form.green = config.green
       form.blue = config.blue
       form.animationMode = config.animationMode
+      form.sleepTimeout = config.sleepTimeout ?? 0
     }
 
     if (config.encoderCW) {
