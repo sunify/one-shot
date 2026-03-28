@@ -119,6 +119,13 @@ if [ "$MODE" = "upload" ]; then
   PORTS=$(cat /tmp/oneshot_ports.tmp)
   rm -f /tmp/oneshot_ports.tmp
 
+  # Filter ports by target: one-shot hides ESP boards, magic-button hides Arduino boards
+  if [ "$TARGET" = "one-shot" ]; then
+    PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
+  elif [ "$TARGET" = "magic-button" ]; then
+    PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)
+  fi
+
   if [ -z "$PORTS" ]; then
     echo "No USB serial ports found." >&2
     exit 1
