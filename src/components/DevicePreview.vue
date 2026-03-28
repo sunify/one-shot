@@ -6,6 +6,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isRainbow: {
+    type: Boolean,
+    default: false,
+  },
   width: {
     type: [Number, String],
     default: 200,
@@ -58,6 +62,17 @@ onBeforeUnmount(() => {
     style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5"
     viewBox="0 0 300 210"
   >
+    <defs>
+      <linearGradient id="rainbow-grad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="hsl(0,90%,65%)" />
+        <stop offset="17%" stop-color="hsl(60,90%,65%)" />
+        <stop offset="33%" stop-color="hsl(120,90%,65%)" />
+        <stop offset="50%" stop-color="hsl(180,90%,65%)" />
+        <stop offset="67%" stop-color="hsl(240,90%,65%)" />
+        <stop offset="83%" stop-color="hsl(300,90%,65%)" />
+        <stop offset="100%" stop-color="hsl(360,90%,65%)" />
+      </linearGradient>
+    </defs>
     <g
       style="user-select: none; cursor: pointer"
       :transform="`translate(0, ${visualButtonOffset})`"
@@ -69,7 +84,7 @@ onBeforeUnmount(() => {
       <path d="m62.4 23.2-3.5 6V60m75.2-21.7-3 5.6-.6 31.6m33.3-37.2 3.1 5.1v32.1m69.6-52.3 3.6 6V60" style="fill:none;stroke:#000;stroke-width:1.25px"/>
     </g>
     <path d="M1 148v26.8c0 2 4.5 6 7.7 7.8a69 69 0 0 0 12.8 4.1l87.5 18.7 17 2c7.8.8 16.5 1.6 22.5 1.6 11.6 0 39.4-3.6 39.4-3.6l90.1-18.6s8.3-1.8 10.8-2.6q2.3-1 4-2.6c1.8-1.6 6.2-5.3 6.2-6.7v-26.4s-4.9 3.1-7.5 4.2c-3 1.3-11 3.3-11 3.3l-89 16.7c0 1.9-29.3 4.7-43.6 4.8-14 0-42-4.2-42-4.2-26.7-5-87.5-18.6-87.5-18.6S8.2 153.3 1 148" style="fill:#fff;stroke:#000;stroke-width:1.67px"/>
-    <path d="M51.7 40.8S24.8 46 17.9 47.6a33 33 0 0 0-12.8 6.7A17 17 0 0 0 1 59.5v88.4s3.8 3.1 6.1 4.2a92 92 0 0 0 11.3 3l87.6 18.2s22.7 4.6 45 4.1c13.4-.2 40-3.6 40-3.6l89.6-18s9.7-2.3 12.8-3.7c1.6-.8 5.6-4.7 5.6-4.7V60.5s-.9-1.8-1.5-2.6c-.9-1-3.5-4.2-5.7-5.7a59 59 0 0 0-7.1-3.6l-36.4-7.8v18.7c-27.2 5.9-81.4 16-81.4 16s-11.2 1.6-17 1.6c-6 0-19.4-1.6-19.4-1.6l-79-16z" style="fill:var(--top-color);stroke:#000;stroke-width:1.67px;box-shadow: 0 0 3px red;"/>
+    <path d="M51.7 40.8S24.8 46 17.9 47.6a33 33 0 0 0-12.8 6.7A17 17 0 0 0 1 59.5v88.4s3.8 3.1 6.1 4.2a92 92 0 0 0 11.3 3l87.6 18.2s22.7 4.6 45 4.1c13.4-.2 40-3.6 40-3.6l89.6-18s9.7-2.3 12.8-3.7c1.6-.8 5.6-4.7 5.6-4.7V60.5s-.9-1.8-1.5-2.6c-.9-1-3.5-4.2-5.7-5.7a59 59 0 0 0-7.1-3.6l-36.4-7.8v18.7c-27.2 5.9-81.4 16-81.4 16s-11.2 1.6-17 1.6c-6 0-19.4-1.6-19.4-1.6l-79-16z" :style="`fill:${isRainbow ? 'url(#rainbow-grad)' : 'var(--top-color)'};stroke:#000;stroke-width:1.67px`"/>
     <path d="M51.7 40.8S24.8 46 17.9 47.6a33 33 0 0 0-12.8 6.7A17 17 0 0 0 1 59.5v88.4s3.8 3.1 6.1 4.2a92 92 0 0 0 11.3 3l87.6 18.2s22.7 4.6 45 4.1c13.4-.2 40-3.6 40-3.6l89.6-18s9.7-2.3 12.8-3.7c1.6-.8 5.6-4.7 5.6-4.7V60.5s-.9-1.8-1.5-2.6c-.9-1-3.5-4.2-5.7-5.7a59 59 0 0 0-7.1-3.6l-36.4-7.8v18.7c-27.2 5.9-81.4 16-81.4 16s-11.2 1.6-17 1.6c-6 0-19.4-1.6-19.4-1.6l-79-16z" style="fill:var(--top-shade-color);fill-opacity:.1;stroke:#000;stroke-width:1.67px"/>
     <path d="M51.6 50.7s-7 1.6-7 4.1c-.1 3 6.6 4.7 6.6 4.7m197.1-8.3s6.6 1.5 6.7 3.9c0 2.4-6.2 4.4-6.2 4.4" style="fill:none;stroke:#000;stroke-width:1.25px"/>
     <path d="M6.1 53.8s.8 3.3 2 4.1a52 52 0 0 0 13.4 5.2 1943 1943 0 0 0 88 18.6 246 246 0 0 0 40.5 3.1c12.7 0 37.9-3 37.9-3l89-18.2s9-2 11.9-3.6c4.7-2.8 5-5.7 5-5.7" style="fill:none;stroke:#000;stroke-width:1.25px"/>

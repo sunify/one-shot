@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import { DEVICE_TYPES } from '../protocol'
+import { ANIMATION_MODES, DEVICE_TYPES } from '../protocol'
 
 export function useLightingPreview(form, deviceType) {
   const hsl = computed(() => {
@@ -48,6 +48,15 @@ export function useLightingPreview(form, deviceType) {
       }
     }
 
+    if (form.animationMode === ANIMATION_MODES.rainbow) {
+      return {
+        '--selection-color': 'hsl(280,60%,65%)',
+        '--top-color': 'hsl(280,60%,65%)',
+        '--top-shade-color': 'transparent',
+        '--button-color': '#FFF',
+      }
+    }
+
     return {
       '--selection-color': `hsla(${hsl.value.h % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
       '--top-color': `hsla(${hsl.value.h % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
@@ -56,8 +65,11 @@ export function useLightingPreview(form, deviceType) {
     }
   })
 
+  const isRainbow = computed(() => form.animationMode === ANIMATION_MODES.rainbow)
+
   return {
     colorPreviewStyle,
+    isRainbow,
     hsl,
   }
 }

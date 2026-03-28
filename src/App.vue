@@ -22,7 +22,7 @@ const {
   updateGesture,
 } = useConfiguratorState()
 
-const { colorPreviewStyle } = useLightingPreview(form, deviceType)
+const { colorPreviewStyle, isRainbow } = useLightingPreview(form, deviceType)
 
 const {
   connect,
@@ -151,7 +151,7 @@ watch(currentDeviceAnimation, () => {
     </section>
 
     <PanelSection :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
-      <DevicePreview :is-pressed="isDevicePressed" :width="250" />
+      <DevicePreview :is-pressed="isDevicePressed" :is-rainbow="isRainbow" :width="250" />
       <ColorControl
         v-if="isConnected && supportsLighting"
         v-model="selectedColor"

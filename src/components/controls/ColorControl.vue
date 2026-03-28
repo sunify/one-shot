@@ -25,8 +25,8 @@ defineEmits(['update:animationMode', 'update:sleepTimeout', 'update:modelValue']
     <DropdownPanel>
       <template #trigger="{ toggle, triggerRef, isOpen }">
         <button class="color-button" :class="{ 'color-button-active': isOpen }" :ref="triggerRef" @click="toggle">
-          <div class="color-input-overlay" style="background: var(--top-color);" />
-          <div class="color-input-overlay" style="background: var(--top-shade-color); opacity: 0.1;" />
+          <div class="color-input-overlay" :style="animationMode === ANIMATION_MODES.rainbow ? 'background: linear-gradient(to right, hsl(0,90%,65%), hsl(60,90%,65%), hsl(120,90%,65%), hsl(180,90%,65%), hsl(240,90%,65%), hsl(300,90%,65%), hsl(360,90%,65%))' : 'background: var(--top-color)'" />
+          <div v-if="animationMode !== ANIMATION_MODES.rainbow" class="color-input-overlay" style="background: var(--top-shade-color); opacity: 0.1;" />
           <span>Подсветка</span>
         </button>
       </template>
