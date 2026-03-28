@@ -62,7 +62,7 @@ uint8_t brightnessStep = 0;
 uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
 
 uint32_t releaseBoostStart = 0;
-const uint16_t BOOST_DURATION = 1000;
+const uint16_t BOOST_DURATION = 500;
 
 uint32_t lastActivityTime = 0;
 bool isSleeping = false;
@@ -352,6 +352,26 @@ void updateSleep() {
   }
 }
 
+void animateRainbow(uint8_t baseBrightness) {
+  uint8_t hueBase = beatsin8(4, 0, 255);
+  uint8_t hueStep = NUM_LEDS > 1 ? 30 : 0;
+
+  if (releaseBoostStart > 0) {
+    uint32_t elapsed = millis() - releaseBoostStart;
+    if (elapsed < BOOST_DURATION) {
+      uint8_t t = elapsed * 255 / BOOST_DURATION;
+      uint8_t mix = cubicwave8(t);
+      uint8_t fast = beatsin8(40, 0, 255);
+      hueBase = lerp8by8(hueBase, fast, mix / 3);
+    }
+  }
+
+  for (uint8_t i = 0; i < NUM_LEDS; i++) {
+    CHSV hsv(hueBase + i * hueStep, 150, baseBrightness);
+    hsv2rgb_rainbow(hsv, leds[i]);
+  }
+}
+
 void updateLEDs() {
   if (isSleeping) {
     FastLED.clear();
@@ -364,6 +384,9 @@ void updateLEDs() {
   switch (config.animationMode) {
     case 1:
       animateBreathing(baseBrightness);
+      break;
+    case 2:
+      animateRainbow(baseBrightness);
       break;
     default:
       fill_solid(leds, NUM_LEDS, baseColor);

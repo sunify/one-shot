@@ -35,11 +35,13 @@ export const ACTION_TYPES = {
 export const ANIMATION_MODES = {
   static: 0,
   breathing: 1,
+  rainbow: 2,
 }
 
 export const ANIMATION_MODE_OPTIONS = [
   { label: 'Без анимации', value: ANIMATION_MODES.static },
   { label: 'Дыхание', value: ANIMATION_MODES.breathing },
+  { label: 'Радуга', value: ANIMATION_MODES.rainbow },
 ]
 
 export const SLEEP_TIMEOUT_OPTIONS = [
