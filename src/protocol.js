@@ -375,7 +375,7 @@ export function encodeConfig(config) {
 
   const hasEncoder = config.encoderCW != null
   const size = hasEncoder ? 27 : 18
-  const version = hasEncoder ? 6 : 5
+  const version = 6
   const payload = new Uint8Array(size)
   const view = new DataView(payload.buffer)
 

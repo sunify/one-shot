@@ -45,13 +45,7 @@ struct __attribute__((packed)) DeviceConfig {
   uint8_t crc;
 };
 
-#ifdef ROTARY_ENABLED
 const uint8_t CONFIG_VERSION = 6;
-const uint8_t PREV_CONFIG_VERSION = 5;
-#else
-const uint8_t CONFIG_VERSION = 5;
-const uint8_t PREV_CONFIG_VERSION = 4;
-#endif
 const int EEPROM_ADDRESS = 0;
 DeviceConfig config;
 
@@ -131,30 +125,6 @@ void loadConfig() {
   if (isConfigValid(stored, CONFIG_VERSION)) {
     applyConfig(stored);
     return;
-  }
-
-  // Migrate from previous version (without sleepTimeout).
-  // Old struct is 1 byte shorter — read raw bytes at old size and rebuild.
-  const uint8_t OLD_SIZE = sizeof(DeviceConfig) - 1;
-  uint8_t raw[OLD_SIZE];
-  for (uint8_t i = 0; i < OLD_SIZE; i++) {
-    raw[i] = EEPROM.read(EEPROM_ADDRESS + i);
-  }
-
-  if (raw[0] == PREV_CONFIG_VERSION) {
-    uint8_t oldCrc = raw[OLD_SIZE - 1];
-    uint8_t computed = 0;
-    for (uint8_t i = 0; i < OLD_SIZE - 1; i++) {
-      computed = crc8Update(computed, raw[i]);
-    }
-
-    if (oldCrc == computed) {
-      // Copy old fields up to animationMode, insert sleepTimeout=0, skip old crc
-      memcpy(&stored, raw, offsetof(DeviceConfig, sleepTimeout));
-      stored.sleepTimeout = 0;
-      persistConfig(stored);
-      return;
-    }
   }
 
   stored = defaultConfig();
