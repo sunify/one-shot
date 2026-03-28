@@ -1,6 +1,6 @@
 <script setup>
 import DropdownPanel from './DropdownPanel.vue';
-import { ANIMATION_MODE_OPTIONS, SLEEP_TIMEOUT_OPTIONS } from '../../protocol';
+import { ANIMATION_MODES, ANIMATION_MODE_OPTIONS, SLEEP_TIMEOUT_OPTIONS } from '../../protocol';
 
 defineProps({
   animationMode: {
@@ -31,11 +31,6 @@ defineEmits(['update:animationMode', 'update:sleepTimeout', 'update:modelValue']
         </button>
       </template>
       <template #default>
-        <label class="color-input">
-          <input :value="modelValue" type="color" @input="$emit('update:modelValue', $event.target.value)" />
-          <div class="color-input-overlay" style="background: var(--top-color);" />
-          <div class="color-input-overlay" style="background: var(--top-shade-color); opacity: 0.1;" />
-        </label>
         <label class="toggle-field">
           <select
             :value="animationMode"
@@ -50,6 +45,11 @@ defineEmits(['update:animationMode', 'update:sleepTimeout', 'update:modelValue']
               {{ option.label }}
             </option>
           </select>
+        </label>
+        <label v-if="animationMode !== ANIMATION_MODES.rainbow" class="color-input">
+          <input :value="modelValue" type="color" @input="$emit('update:modelValue', $event.target.value)" />
+          <div class="color-input-overlay" style="background: var(--top-color);" />
+          <div class="color-input-overlay" style="background: var(--top-shade-color); opacity: 0.1;" />
         </label>
         <label class="toggle-field">
           <select
