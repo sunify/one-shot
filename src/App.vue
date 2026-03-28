@@ -155,8 +155,10 @@ watch(currentDeviceAnimation, () => {
       <ColorControl
         v-if="isConnected && supportsLighting"
         v-model="selectedColor"
-        :breathing-enabled="form.breathingEnabled"
-        @update:breathing-enabled="form.breathingEnabled = $event"
+        :animation-mode="form.animationMode"
+        :sleep-timeout="form.sleepTimeout"
+        @update:animation-mode="form.animationMode = $event"
+        @update:sleep-timeout="form.sleepTimeout = $event"
       />
     </PanelSection>
 

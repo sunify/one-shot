@@ -302,7 +302,15 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
         await disconnect()
       }
 
-      port.value = await navigator.serial.requestPort()
+      port.value = await navigator.serial.requestPort({
+        filters: [
+          { usbVendorId: 0x2341 }, // Arduino
+          { usbVendorId: 0x1B4F }, // SparkFun
+          { usbVendorId: 0x1A86 }, // CH340
+          { usbVendorId: 0x10C4 }, // CP2102
+          { usbVendorId: 0x303A }, // Espressif
+        ],
+      })
       await openPortWithRetry(port.value)
       reader.value = port.value.readable.getReader()
       writer.value = port.value.writable.getWriter()

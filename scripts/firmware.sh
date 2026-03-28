@@ -104,7 +104,7 @@ if [ "$MODE" = "upload" ]; then
     /"USB Serial Number"/ { gsub(/.*= "/, ""); gsub(/"/, ""); if (name) print $0 "|" name; name="" }
   ')
 
-  PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)") | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
+  PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)" and (.matching_boards | length > 0)) | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
 
   # Enrich ports with USB product names
   ENRICHED_PORTS=""
@@ -118,6 +118,13 @@ if [ "$MODE" = "upload" ]; then
   done > /tmp/oneshot_ports.tmp
   PORTS=$(cat /tmp/oneshot_ports.tmp)
   rm -f /tmp/oneshot_ports.tmp
+
+  # Filter ports by target: one-shot hides ESP boards, magic-button hides Arduino boards
+  if [ "$TARGET" = "one-shot" ]; then
+    PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
+  elif [ "$TARGET" = "magic-button" ]; then
+    PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)
+  fi
 
   if [ -z "$PORTS" ]; then
     echo "No USB serial ports found." >&2

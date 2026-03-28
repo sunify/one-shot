@@ -32,6 +32,23 @@ export const ACTION_TYPES = {
   mouse: 0x03,
 }
 
+export const ANIMATION_MODES = {
+  static: 0,
+  breathing: 1,
+}
+
+export const ANIMATION_MODE_OPTIONS = [
+  { label: 'Без анимации', value: ANIMATION_MODES.static },
+  { label: 'Дыхание', value: ANIMATION_MODES.breathing },
+]
+
+export const SLEEP_TIMEOUT_OPTIONS = [
+  { label: 'Не выключать', value: 0 },
+  { label: 'Через 1 час', value: 1 },
+  { label: 'Через 3 часа', value: 3 },
+  { label: 'Через 5 часов', value: 5 },
+]
+
 export const MOUSE_AXES = {
   scroll: 0x00,
   moveX: 0x01,
@@ -357,8 +374,8 @@ export function encodeConfig(config) {
   }
 
   const hasEncoder = config.encoderCW != null
-  const size = hasEncoder ? 26 : 17
-  const version = hasEncoder ? 4 : 3
+  const size = hasEncoder ? 27 : 18
+  const version = 6
   const payload = new Uint8Array(size)
   const view = new DataView(payload.buffer)
 
@@ -369,12 +386,13 @@ export function encodeConfig(config) {
   payload[13] = config.red
   payload[14] = config.green
   payload[15] = config.blue
-  payload[16] = config.breathingEnabled ? 1 : 0
+  payload[16] = config.animationMode
+  payload[17] = config.sleepTimeout ?? 0
 
   if (hasEncoder) {
-    writeGesture(view, 17, config.encoderCW)
-    writeGesture(view, 21, config.encoderCCW)
-    payload[25] = config.encoderSensitivity
+    writeGesture(view, 18, config.encoderCW)
+    writeGesture(view, 22, config.encoderCCW)
+    payload[26] = config.encoderSensitivity
   }
 
   const crc = computeCrc(payload)
@@ -401,12 +419,12 @@ export function decodeConfig(payload) {
     }
   }
 
-  if (payload.length !== 18 && payload.length !== 27) {
+  if (payload.length !== 19 && payload.length !== 28) {
     throw new Error(`Unexpected config payload size: ${payload.length}`)
   }
 
-  const hasEncoder = payload.length === 27
-  const rawLen = hasEncoder ? 26 : 17
+  const hasEncoder = payload.length === 28
+  const rawLen = hasEncoder ? 27 : 18
   const raw = payload.slice(0, rawLen)
   const storedCrc = payload[rawLen]
   const computed = computeCrc(raw)
@@ -425,13 +443,14 @@ export function decodeConfig(payload) {
     red: raw[13],
     green: raw[14],
     blue: raw[15],
-    breathingEnabled: raw[16] === 1,
+    animationMode: raw[16],
+    sleepTimeout: raw[17],
   }
 
   if (hasEncoder) {
-    config.encoderCW = readGesture(view, 17)
-    config.encoderCCW = readGesture(view, 21)
-    config.encoderSensitivity = raw[25]
+    config.encoderCW = readGesture(view, 18)
+    config.encoderCCW = readGesture(view, 22)
+    config.encoderSensitivity = raw[26]
   }
 
   return config

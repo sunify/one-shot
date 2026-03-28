@@ -26,7 +26,8 @@ USBHIDKeyboard Keyboard;
 USBHIDConsumerControl ConsumerControl;
 Preferences preferences;
 
-#define BUTTON_PIN 7
+#define BUTTON_PIN 6
+#define GND_PIN 9
 
 const uint16_t LONG_PRESS_TIME = 1000;
 const uint16_t DOUBLE_TAP_INIT_TIME = 100;
@@ -278,6 +279,8 @@ void updateButton() {
 }
 
 void setup() {
+  pinMode(GND_PIN, OUTPUT);
+  digitalWrite(GND_PIN, LOW);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   preferences.begin(PREFERENCES_NAMESPACE, false);
