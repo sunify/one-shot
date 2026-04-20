@@ -63,8 +63,8 @@ case "$TARGET" in
     TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_NRF:-adafruit:nrf52:feather52840}"
     TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_NRF:-firmware/magic-button-nrf}"
     TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_MAGIC_BUTTON_NRF:-.arduino/build-magic-button-nrf}"
-    TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_NRF:-Magic Button NRF Test}"
-    TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_NRF:-lunyov}"
+    TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_NRF:-Super Magic Button}"
+    TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_NRF:-Huntflow}"
     ;;
   *)
     echo "Unknown firmware target: $TARGET" >&2
@@ -109,6 +109,8 @@ compile_magic_button_nrf() {
     -b "${TARGET_FQBN}" \
     --libraries "$ROOT_DIR/libraries" \
     --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
+    --build-property "build.usb_product=\"${TARGET_USB_PRODUCT}\"" \
+    --build-property "build.usb_manufacturer=\"${TARGET_USB_MANUFACTURER}\"" \
     ${EXTRA_ARGS} \
     "$ROOT_DIR/${TARGET_SKETCH_PATH}"
 }

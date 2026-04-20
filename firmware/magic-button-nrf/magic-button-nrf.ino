@@ -1,3 +1,4 @@
+#include <Adafruit_TinyUSB.h>
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
@@ -59,6 +60,16 @@ const uint8_t BATTERY_TEST_LEVEL = 77;
 const uint16_t BATTERY_TEST_MILLIVOLTS = 3850;
 const float VDDH_MV_PER_LSB = 3.66210938F;
 
+enum UsbHidReportId : uint8_t {
+  USB_REPORT_ID_KEYBOARD = 1,
+  USB_REPORT_ID_CONSUMER_CONTROL = 2,
+};
+
+const uint8_t USB_HID_REPORT_DESCRIPTOR[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(USB_REPORT_ID_KEYBOARD)),
+    TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(USB_REPORT_ID_CONSUMER_CONTROL)),
+};
+
 enum GestureCode : uint8_t {
   GESTURE_SINGLE_TAP = 1,
   GESTURE_DOUBLE_TAP = 2,
@@ -76,6 +87,7 @@ struct __attribute__((packed)) DeviceConfig {
 BLEDis deviceInfo;
 BLEHidAdafruit hid;
 BLEBas batteryService;
+Adafruit_USBD_HID usbHid;
 DeviceConfig config;
 
 bool storageReady = false;
@@ -321,7 +333,7 @@ void sendConfigFrame() {
   sendFrame(Serial, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
 }
 
-uint8_t toBleModifiers(uint8_t modifiers) {
+uint8_t toKeyboardModifiers(uint8_t modifiers) {
   uint8_t result = 0;
 
   if (modifiers & MODIFIER_CTRL) result |= KEYBOARD_MODIFIER_LEFTCTRL;
@@ -332,10 +344,35 @@ uint8_t toBleModifiers(uint8_t modifiers) {
   return result;
 }
 
-bool sendKeyboardAction(uint8_t keycode, uint8_t modifiers) {
+bool isUsbHidActive() {
+  return TinyUSBDevice.mounted() && usbHid.ready();
+}
+
+bool sendUsbKeyboardAction(uint8_t keycode, uint8_t modifiers) {
+  if (!isUsbHidActive()) {
+    return false;
+  }
+
+  if (TinyUSBDevice.suspended()) {
+    TinyUSBDevice.remoteWakeup();
+    delay(4);
+  }
+
+  uint8_t keycodes[6] = {keycode, 0, 0, 0, 0, 0};
+  uint8_t keyboardModifiers = toKeyboardModifiers(modifiers);
+  if (!usbHid.keyboardReport(USB_REPORT_ID_KEYBOARD, keyboardModifiers, keycodes)) {
+    return false;
+  }
+
+  delay(REPORT_DELAY_MS);
+  usbHid.keyboardRelease(USB_REPORT_ID_KEYBOARD);
+  return true;
+}
+
+bool sendBleKeyboardAction(uint8_t keycode, uint8_t modifiers) {
   bool sent = false;
   uint8_t keycodes[6] = {keycode, 0, 0, 0, 0, 0};
-  uint8_t bleModifiers = toBleModifiers(modifiers);
+  uint8_t keyboardModifiers = toKeyboardModifiers(modifiers);
 
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
@@ -348,7 +385,7 @@ bool sendKeyboardAction(uint8_t keycode, uint8_t modifiers) {
       continue;
     }
 
-    if (!hid.keyboardReport(connHandle, bleModifiers, keycodes)) {
+    if (!hid.keyboardReport(connHandle, keyboardModifiers, keycodes)) {
       continue;
     }
 
@@ -361,6 +398,21 @@ bool sendKeyboardAction(uint8_t keycode, uint8_t modifiers) {
 }
 
 bool sendConsumerAction(uint16_t usageCode) {
+  if (isUsbHidActive()) {
+    if (TinyUSBDevice.suspended()) {
+      TinyUSBDevice.remoteWakeup();
+      delay(4);
+    }
+
+    if (!usbHid.sendReport16(USB_REPORT_ID_CONSUMER_CONTROL, usageCode)) {
+      return false;
+    }
+
+    delay(REPORT_DELAY_MS);
+    usbHid.sendReport16(USB_REPORT_ID_CONSUMER_CONTROL, 0);
+    return true;
+  }
+
   bool sent = false;
 
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
@@ -388,7 +440,11 @@ bool sendConsumerAction(uint16_t usageCode) {
 
 bool sendGestureAction(const GestureAction &action) {
   if (action.type == ACTION_TYPE_HOTKEY) {
-    return sendKeyboardAction(static_cast<uint8_t>(action.code), action.modifiers);
+    if (isUsbHidActive()) {
+      return sendUsbKeyboardAction(static_cast<uint8_t>(action.code), action.modifiers);
+    }
+
+    return sendBleKeyboardAction(static_cast<uint8_t>(action.code), action.modifiers);
   }
 
   if (action.type == ACTION_TYPE_CONSUMER) {
@@ -689,6 +745,23 @@ void setupBle() {
   startAdvertising();
 }
 
+void setupUsbHid() {
+  if (!TinyUSBDevice.isInitialized()) {
+    TinyUSBDevice.begin(0);
+  }
+
+  usbHid.setPollInterval(2);
+  usbHid.setReportDescriptor(USB_HID_REPORT_DESCRIPTOR, sizeof(USB_HID_REPORT_DESCRIPTOR));
+  usbHid.setStringDescriptor("Super Magic Button HID");
+  usbHid.begin();
+
+  if (TinyUSBDevice.mounted()) {
+    TinyUSBDevice.detach();
+    delay(10);
+    TinyUSBDevice.attach();
+  }
+}
+
 void setupStorage() {
   storageReady = InternalFS.begin();
   if (!storageReady) {
@@ -706,14 +779,12 @@ void setup() {
 
   setupButtonInput();
   setupButtonGround();
-
-  if (ENABLE_SERIAL_DEBUG) {
-    Serial.begin(SERIAL_BAUD);
-    delay(50);
-  }
+  Serial.begin(SERIAL_BAUD);
+  delay(50);
 
   setupStorage();
   loadConfig();
+  setupUsbHid();
   setupBle();
 
   if (ENABLE_SERIAL_DEBUG) {
@@ -736,6 +807,10 @@ void setup() {
 }
 
 void loop() {
+#ifdef TINYUSB_NEED_POLLING_TASK
+  TinyUSBDevice.task();
+#endif
+
   uint32_t now = millis();
   handleSerial();
   updateButton(now);
