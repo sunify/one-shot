@@ -305,6 +305,7 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
       port.value = await navigator.serial.requestPort({
         filters: [
           { usbVendorId: 0x2341 }, // Arduino
+          { usbVendorId: 0x239A }, // Adafruit UF2 / nRF52 bootloader
           { usbVendorId: 0x1B4F }, // SparkFun
           { usbVendorId: 0x1A86 }, // CH340
           { usbVendorId: 0x10C4 }, // CP2102

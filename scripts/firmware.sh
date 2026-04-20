@@ -59,6 +59,13 @@ case "$TARGET" in
     TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON:-Magic Button}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON:-Huntflow}"
     ;;
+  magic-button-nrf)
+    TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_NRF:-adafruit:nrf52:feather52840}"
+    TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_NRF:-firmware/magic-button-nrf}"
+    TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_MAGIC_BUTTON_NRF:-.arduino/build-magic-button-nrf}"
+    TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_NRF:-Magic Button NRF Test}"
+    TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_NRF:-lunyov}"
+    ;;
   *)
     echo "Unknown firmware target: $TARGET" >&2
     exit 1
@@ -95,6 +102,17 @@ compile_magic_button() {
     "$ROOT_DIR/${TARGET_SKETCH_PATH}"
 }
 
+compile_magic_button_nrf() {
+  EXTRA_ARGS="${1:-}"
+  arduino-cli compile \
+    --config-file "$ROOT_DIR/arduino-cli.yaml" \
+    -b "${TARGET_FQBN}" \
+    --libraries "$ROOT_DIR/libraries" \
+    --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
+    ${EXTRA_ARGS} \
+    "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+}
+
 if [ "$MODE" = "upload" ]; then
   PORTS_JSON=$(arduino-cli board list --format json 2>/dev/null)
 
@@ -104,7 +122,11 @@ if [ "$MODE" = "upload" ]; then
     /"USB Serial Number"/ { gsub(/.*= "/, ""); gsub(/"/, ""); if (name) print $0 "|" name; name="" }
   ')
 
-  PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)" and (.matching_boards | length > 0)) | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
+  if [ "$TARGET" = "magic-button-nrf" ]; then
+    PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)") | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
+  else
+    PORTS=$(echo "$PORTS_JSON" | jq -r '.detected_ports[] | select(.port.protocol_label == "Serial Port (USB)" and (.matching_boards | length > 0)) | "\(.port.address)|\(.matching_boards[0].name // "Unknown")|\(.port.hardware_id // "")"')
+  fi
 
   # Enrich ports with USB product names
   ENRICHED_PORTS=""
@@ -124,6 +146,8 @@ if [ "$MODE" = "upload" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
   elif [ "$TARGET" = "magic-button" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)
+  elif [ "$TARGET" = "magic-button-nrf" ]; then
+    PORTS=$(echo "$PORTS" | grep -i "usbmodem\|nrf\|feather\|unknown" || true)
   fi
 
   if [ -z "$PORTS" ]; then
@@ -160,6 +184,8 @@ if [ "$MODE" = "upload" ]; then
 
   if [ "$TARGET" = "magic-button" ]; then
     compile_magic_button
+  elif [ "$TARGET" = "magic-button-nrf" ]; then
+    compile_magic_button_nrf
   else
     compile_one_shot
   fi
@@ -176,6 +202,8 @@ fi
 
 if [ "$TARGET" = "magic-button" ]; then
   compile_magic_button "${EXPORT_FLAG}"
+elif [ "$TARGET" = "magic-button-nrf" ]; then
+  compile_magic_button_nrf "${EXPORT_FLAG}"
 else
   compile_one_shot "${EXPORT_FLAG}"
 fi

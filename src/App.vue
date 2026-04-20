@@ -42,8 +42,17 @@ const {
 })
 
 const appTitle = computed(() => {
-  if (!isConnected.value) return 'Конфигуратор'
-  const name = productName.value || getDeviceName(deviceType.value)
+  let name = productName.value || getDeviceName(deviceType.value)
+  const isNrfMagicButton = productName.value === 'Magic Button NRF'
+
+  if (!isConnected.value) {
+    return 'Конфигуратор'
+  }
+
+  if (isNrfMagicButton) {
+    name = 'Супер Волшебной кнопки'
+  }
+
   return `Конфигуратор<br />${name}`
 })
 
