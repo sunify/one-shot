@@ -29,3 +29,19 @@
 - Shared firmware helpers live in the repo-local Arduino library `libraries/device_protocol`.
 - Upload port is configured via `ARDUINO_PORT` in the repo-root `.env`.
 - USB name is overridden at build time via `build.usb_product` and `build.usb_manufacturer` rather than by editing Arduino IDE core files.
+
+## Magic Button NRF Battery Calibration
+- Field note for later battery curve tuning: `3.779 V -> 14%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.87 V -> 38%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.891 V -> 42%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.934 V -> 51%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.973 V -> 61%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.952 V -> 51%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.909 V -> 44%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.858 V -> 32%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.845 V -> 25%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.786 V -> 21%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.746 V -> 12%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.710 V -> 10%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.670 V -> 8%` on current BLE battery reporting.
+- Field note for later battery curve tuning: `3.660 V -> 6%` on current BLE battery reporting.
