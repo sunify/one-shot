@@ -3,6 +3,7 @@
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
 #include "nrf_gpio.h"
+#include "nrf_power.h"
 #include "device_protocol.h"
 
 using namespace Adafruit_LittleFS_Namespace;
@@ -53,6 +54,8 @@ const uint16_t DEBOUNCE_TIME = 30;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint16_t STATUS_BLINK_INTERVAL_MS = 300;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
+const uint32_t SYSTEM_OFF_TIMEOUT_MS = 60000;
+const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
 const bool BATTERY_TEST_MODE = false;
@@ -100,6 +103,7 @@ uint32_t pressStartedAt = 0;
 uint32_t lastReleaseAt = 0;
 uint32_t lastBlinkAt = 0;
 uint32_t lastBatteryUpdateAt = 0;
+uint32_t lastActivityAt = 0;
 bool ledState = false;
 bool batteryInitialized = false;
 uint8_t batteryLevel = 100;
@@ -112,6 +116,10 @@ void debugPrintln(const char *message) {
   }
 
   Serial.println(message);
+}
+
+void markActivity(uint32_t now = millis()) {
+  lastActivityAt = now;
 }
 
 void setupButtonInput() {
@@ -350,6 +358,14 @@ bool isUsbHidActive() {
   return TinyUSBDevice.mounted() && usbHid.ready();
 }
 
+bool isVbusPresent() {
+#if NRF_POWER_HAS_USBREG
+  return nrf_power_usbregstatus_vbusdet_get(NRF_POWER);
+#else
+  return TinyUSBDevice.mounted();
+#endif
+}
+
 bool sendUsbKeyboardAction(uint8_t keycode, uint8_t modifiers) {
   if (!isUsbHidActive()) {
     return false;
@@ -555,13 +571,17 @@ void handleSerial() {
     }
 
     if (cmd == CMD_GET_CONFIG) {
+      markActivity();
       sendConfigFrame();
     } else if (cmd == CMD_SET_CONFIG) {
+      markActivity();
       handleSetConfig(payload, payloadLen);
     } else if (cmd == CMD_RESET_CONFIG) {
+      markActivity();
       resetConfig();
       sendConfigFrame();
     } else if (cmd == CMD_PING) {
+      markActivity();
       sendPingFrame(Serial, DEVICE_TYPE_MAGIC_BUTTON, DEVICE_NAME);
     } else {
       sendError(Serial, STATUS_BAD_COMMAND);
@@ -582,6 +602,12 @@ bool hasActiveBleConnection() {
 
 void updateStatusLed(uint32_t now) {
 #if defined(LED_BUILTIN)
+  if (!isVbusPresent()) {
+    digitalWrite(LED_BUILTIN, LOW);
+    ledState = false;
+    return;
+  }
+
   if (hasActiveBleConnection()) {
     digitalWrite(LED_BUILTIN, HIGH);
     return;
@@ -631,10 +657,12 @@ void updateButton(uint32_t now) {
   if (buttonState == LOW) {
     pressStartedAt = now;
     longPressSent = false;
+    markActivity(now);
     sendButtonEvent(Serial, BUTTON_PRESSED);
     return;
   }
 
+  markActivity(now);
   sendButtonEvent(Serial, BUTTON_RELEASED);
 
   uint32_t pressDuration = now - pressStartedAt;
@@ -689,6 +717,7 @@ void connectCallback(uint16_t connHandle) {
     Serial.print("connected: ");
     Serial.println(peerName[0] ? peerName : "unknown");
   }
+  markActivity();
   batteryService.notify(connHandle, batteryLevel);
 }
 
@@ -699,6 +728,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason) {
     Serial.print("disconnected: 0x");
     Serial.println(reason, HEX);
   }
+  markActivity();
 }
 
 void pairCompleteCallback(uint16_t connHandle, uint8_t authStatus) {
@@ -771,6 +801,65 @@ void setupStorage() {
   }
 }
 
+void enterSystemOff() {
+#if defined(LED_BUILTIN)
+  digitalWrite(LED_BUILTIN, LOW);
+#endif
+
+#if defined(USE_RAW_BUTTON_GPIO)
+  nrf_gpio_cfg_sense_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
+
+  uint8_t softDeviceEnabled = 0;
+  (void) sd_softdevice_is_enabled(&softDeviceEnabled);
+
+  if (softDeviceEnabled) {
+    (void) sd_power_system_off();
+  } else {
+    NRF_POWER->SYSTEMOFF = 1;
+  }
+#else
+  systemOff(BUTTON_PIN, LOW);
+#endif
+}
+
+bool shouldEnterSystemOff(uint32_t now) {
+  if (isVbusPresent()) {
+    return false;
+  }
+
+  if (hasActiveBleConnection()) {
+    return false;
+  }
+
+  if (buttonState == LOW || lastRawButtonState == LOW) {
+    return false;
+  }
+
+  if (waitForDoubleTap) {
+    return false;
+  }
+
+  return now - lastActivityAt >= SYSTEM_OFF_TIMEOUT_MS;
+}
+
+void idleSleep(uint32_t now) {
+  if (shouldEnterSystemOff(now)) {
+    enterSystemOff();
+    return;
+  }
+
+  if (Serial.available() > 0) {
+    return;
+  }
+
+  if (buttonState == LOW || lastRawButtonState == LOW || waitForDoubleTap) {
+    delay(ACTIVE_POLL_DELAY_MS);
+    return;
+  }
+
+  waitForEvent();
+}
+
 }  // namespace
 
 void setup() {
@@ -788,6 +877,7 @@ void setup() {
   loadConfig();
   setupUsbHid();
   setupBle();
+  markActivity();
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.println();
@@ -822,4 +912,6 @@ void loop() {
     lastBatteryUpdateAt = now;
     updateBatteryLevel();
   }
+
+  idleSleep(now);
 }
