@@ -62,6 +62,13 @@ const bool BATTERY_TEST_MODE = false;
 const uint8_t BATTERY_TEST_LEVEL = 77;
 const uint16_t BATTERY_TEST_MILLIVOLTS = 3850;
 const float VDDH_MV_PER_LSB = 3.66210938F;
+const int16_t BATTERY_CALIBRATION_OFFSET_MV = 80;
+const uint32_t DEBUG_LED_GPIO = NRF_GPIO_PIN_MAP(0, 22);
+const uint16_t DEBUG_LED_PULSE_MS = 40;
+const uint16_t DEBUG_LED_GAP_MS = 70;
+const uint16_t DEBUG_REASON_PULSE_MS = 30;
+const uint16_t DEBUG_REASON_GAP_MS = 140;
+const uint32_t SLEEP_DEBUG_REPEAT_MS = 2000;
 
 enum UsbHidReportId : uint8_t {
   USB_REPORT_ID_KEYBOARD = 1,
@@ -104,11 +111,40 @@ uint32_t lastReleaseAt = 0;
 uint32_t lastBlinkAt = 0;
 uint32_t lastBatteryUpdateAt = 0;
 uint32_t lastActivityAt = 0;
+uint32_t lastSleepDebugAt = 0;
 bool ledState = false;
 bool batteryInitialized = false;
+bool usbInitialized = false;
+bool usbVbusActive = false;
+bool lastVbusPresent = false;
 uint8_t batteryLevel = 100;
 uint16_t batteryMillivolts = 4200;
 uint32_t batteryRawAdc = 0;
+
+void setupDebugLed() {
+  nrf_gpio_cfg_output(DEBUG_LED_GPIO);
+  nrf_gpio_pin_clear(DEBUG_LED_GPIO);
+}
+
+void setDebugLed(bool enabled) {
+  if (enabled) {
+    nrf_gpio_pin_set(DEBUG_LED_GPIO);
+  } else {
+    nrf_gpio_pin_clear(DEBUG_LED_GPIO);
+  }
+}
+
+void pulseDebugLed(uint8_t pulses, uint16_t pulseMs = DEBUG_LED_PULSE_MS, uint16_t gapMs = DEBUG_LED_GAP_MS) {
+  for (uint8_t i = 0; i < pulses; i++) {
+    setDebugLed(true);
+    delay(pulseMs);
+    setDebugLed(false);
+
+    if (i + 1 < pulses) {
+      delay(gapMs);
+    }
+  }
+}
 
 void debugPrintln(const char *message) {
   if (!ENABLE_SERIAL_DEBUG) {
@@ -163,7 +199,7 @@ uint16_t readBatteryMillivolts() {
   analogReference(AR_DEFAULT);
   analogReadResolution(10);
 
-  return static_cast<uint16_t>(batteryRawAdc * VDDH_MV_PER_LSB);
+  return static_cast<uint16_t>(batteryRawAdc * VDDH_MV_PER_LSB) + BATTERY_CALIBRATION_OFFSET_MV;
 #elif defined(SAADC_CH_PSELP_PSELP_VDD)
   analogReference(AR_INTERNAL_3_0);
   analogReadResolution(12);
@@ -178,7 +214,7 @@ uint16_t readBatteryMillivolts() {
   analogReference(AR_DEFAULT);
   analogReadResolution(10);
 
-  return static_cast<uint16_t>(batteryRawAdc * 0.73242188F);
+  return static_cast<uint16_t>(batteryRawAdc * 0.73242188F) + BATTERY_CALIBRATION_OFFSET_MV;
 #else
   batteryRawAdc = 0;
   return 4200;
@@ -355,15 +391,20 @@ uint8_t toKeyboardModifiers(uint8_t modifiers) {
 }
 
 bool isUsbHidActive() {
-  return TinyUSBDevice.mounted() && usbHid.ready();
+  return usbInitialized && usbVbusActive && TinyUSBDevice.mounted() && usbHid.ready();
 }
 
-bool isVbusPresent() {
+bool isRawVbusPresent() {
 #if NRF_POWER_HAS_USBREG
-  return nrf_power_usbregstatus_vbusdet_get(NRF_POWER);
+  return nrf_power_usbregstatus_vbusdet_get(NRF_POWER) &&
+         nrf_power_usbregstatus_outrdy_get(NRF_POWER);
 #else
   return TinyUSBDevice.mounted();
 #endif
+}
+
+bool isVbusPresent() {
+  return usbVbusActive;
 }
 
 bool sendUsbKeyboardAction(uint8_t keycode, uint8_t modifiers) {
@@ -778,6 +819,11 @@ void setupBle() {
 }
 
 void setupUsbHid() {
+  if (usbInitialized) {
+    TinyUSBDevice.attach();
+    return;
+  }
+
   if (!TinyUSBDevice.isInitialized()) {
     TinyUSBDevice.begin(0);
   }
@@ -792,6 +838,8 @@ void setupUsbHid() {
     delay(10);
     TinyUSBDevice.attach();
   }
+
+  usbInitialized = true;
 }
 
 void setupStorage() {
@@ -801,10 +849,36 @@ void setupStorage() {
   }
 }
 
+void updateUsbState() {
+  bool vbusPresent = isRawVbusPresent();
+
+  if (vbusPresent && !lastVbusPresent) {
+    if (!usbInitialized) {
+      NVIC_SystemReset();
+    }
+
+    Serial.begin(SERIAL_BAUD);
+    delay(50);
+    setupUsbHid();
+    usbVbusActive = true;
+    markActivity();
+  } else if (!vbusPresent && lastVbusPresent && usbVbusActive) {
+    TinyUSBDevice.detach();
+    Serial.end();
+    usbVbusActive = false;
+    markActivity();
+  }
+
+  lastVbusPresent = vbusPresent;
+}
+
 void enterSystemOff() {
 #if defined(LED_BUILTIN)
   digitalWrite(LED_BUILTIN, LOW);
 #endif
+  pulseDebugLed(3, 25, 40);
+  Bluefruit.Advertising.stop();
+  delay(10);
 
 #if defined(USE_RAW_BUTTON_GPIO)
   nrf_gpio_cfg_sense_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
@@ -842,10 +916,38 @@ bool shouldEnterSystemOff(uint32_t now) {
   return now - lastActivityAt >= SYSTEM_OFF_TIMEOUT_MS;
 }
 
+uint8_t sleepBlockReason() {
+  if (isVbusPresent()) {
+    return 4;
+  }
+
+  if (hasActiveBleConnection()) {
+    return 5;
+  }
+
+  if (buttonState == LOW || lastRawButtonState == LOW) {
+    return 6;
+  }
+
+  if (waitForDoubleTap) {
+    return 7;
+  }
+
+  return 0;
+}
+
 void idleSleep(uint32_t now) {
   if (shouldEnterSystemOff(now)) {
     enterSystemOff();
     return;
+  }
+
+  if (now - lastActivityAt >= SYSTEM_OFF_TIMEOUT_MS) {
+    uint8_t reason = sleepBlockReason();
+    if (reason != 0 && now - lastSleepDebugAt >= SLEEP_DEBUG_REPEAT_MS) {
+      lastSleepDebugAt = now;
+      pulseDebugLed(reason, DEBUG_REASON_PULSE_MS, DEBUG_REASON_GAP_MS);
+    }
   }
 
   if (Serial.available() > 0) {
@@ -867,15 +969,28 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
 #endif
+  setupDebugLed();
+
+  const uint32_t resetReason = NRF_POWER->RESETREAS;
+  NRF_POWER->RESETREAS = resetReason;
+  if (resetReason & POWER_RESETREAS_OFF_Msk) {
+    pulseDebugLed(2);
+  } else {
+    pulseDebugLed(1);
+  }
 
   setupButtonInput();
   setupButtonGround();
-  Serial.begin(SERIAL_BAUD);
-  delay(50);
 
   setupStorage();
   loadConfig();
-  setupUsbHid();
+  lastVbusPresent = isRawVbusPresent();
+  if (lastVbusPresent) {
+    Serial.begin(SERIAL_BAUD);
+    delay(50);
+    setupUsbHid();
+    usbVbusActive = true;
+  }
   setupBle();
   markActivity();
 
@@ -900,8 +1015,12 @@ void setup() {
 
 void loop() {
 #ifdef TINYUSB_NEED_POLLING_TASK
-  TinyUSBDevice.task();
+  if (usbInitialized && usbVbusActive) {
+    TinyUSBDevice.task();
+  }
 #endif
+
+  updateUsbState();
 
   uint32_t now = millis();
   handleSerial();

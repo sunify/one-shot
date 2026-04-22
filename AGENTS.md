@@ -45,3 +45,7 @@
 - Field note for later battery curve tuning: `3.710 V -> 10%` on current BLE battery reporting.
 - Field note for later battery curve tuning: `3.670 V -> 8%` on current BLE battery reporting.
 - Field note for later battery curve tuning: `3.660 V -> 6%` on current BLE battery reporting.
+
+## Magic Button NRF Battery Curve Validation
+- Post-fix validation point after curve update: `4.064 V -> 64%` on current BLE battery reporting.
+- Post-fix validation point after curve update: `4.1 V -> 79%` on current BLE battery reporting.
