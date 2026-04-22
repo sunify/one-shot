@@ -54,7 +54,7 @@ const uint16_t DEBOUNCE_TIME = 30;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint16_t STATUS_BLINK_INTERVAL_MS = 300;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
-const uint32_t SYSTEM_OFF_TIMEOUT_MS = 60000;
+const uint32_t SYSTEM_OFF_TIMEOUT_MS = 3600000;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
@@ -66,8 +66,8 @@ const int16_t BATTERY_CALIBRATION_OFFSET_MV = 80;
 const uint32_t DEBUG_LED_GPIO = NRF_GPIO_PIN_MAP(0, 22);
 const uint16_t DEBUG_LED_PULSE_MS = 40;
 const uint16_t DEBUG_LED_GAP_MS = 70;
-const uint16_t DEBUG_REASON_PULSE_MS = 30;
-const uint16_t DEBUG_REASON_GAP_MS = 140;
+const uint16_t DEBUG_REASON_PULSE_MS = 80;
+const uint16_t DEBUG_REASON_GAP_MS = 220;
 const uint32_t SLEEP_DEBUG_REPEAT_MS = 2000;
 
 enum UsbHidReportId : uint8_t {
@@ -407,6 +407,10 @@ bool isVbusPresent() {
   return usbVbusActive;
 }
 
+bool hasActiveUsbSession() {
+  return usbInitialized && usbVbusActive && TinyUSBDevice.mounted();
+}
+
 bool sendUsbKeyboardAction(uint8_t keycode, uint8_t modifiers) {
   if (!isUsbHidActive()) {
     return false;
@@ -641,6 +645,17 @@ bool hasActiveBleConnection() {
   return false;
 }
 
+void disconnectAllBleConnections() {
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected()) {
+      continue;
+    }
+
+    connection->disconnect();
+  }
+}
+
 void updateStatusLed(uint32_t now) {
 #if defined(LED_BUILTIN)
   if (!isVbusPresent()) {
@@ -741,8 +756,8 @@ void startAdvertising() {
   Bluefruit.ScanResponse.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(32, 244);
-  Bluefruit.Advertising.setFastTimeout(30);
+  Bluefruit.Advertising.setInterval(160, 1600);
+  Bluefruit.Advertising.setFastTimeout(15);
   Bluefruit.Advertising.start(0);
 }
 
@@ -752,6 +767,7 @@ void connectCallback(uint16_t connHandle) {
 
   if (connection) {
     connection->getPeerName(peerName, sizeof(peerName));
+    connection->requestConnectionParameter(40, 4, 400);
   }
 
   if (ENABLE_SERIAL_DEBUG) {
@@ -798,8 +814,11 @@ void securedCallback(uint16_t connHandle) {
 void setupBle() {
   Bluefruit.autoConnLed(false);
   Bluefruit.configPrphBandwidth(BANDWIDTH_NORMAL);
+  Bluefruit.Periph.setConnIntervalMS(30, 50);
+  Bluefruit.Periph.setConnSlaveLatency(4);
+  Bluefruit.Periph.setConnSupervisionTimeoutMS(4000);
   Bluefruit.begin();
-  Bluefruit.setTxPower(0);
+  Bluefruit.setTxPower(-12);
   Bluefruit.setName(DEVICE_NAME);
 
   Bluefruit.Periph.setConnectCallback(connectCallback);
@@ -876,6 +895,8 @@ void enterSystemOff() {
 #if defined(LED_BUILTIN)
   digitalWrite(LED_BUILTIN, LOW);
 #endif
+  disconnectAllBleConnections();
+  delay(30);
   pulseDebugLed(3, 25, 40);
   Bluefruit.Advertising.stop();
   delay(10);
@@ -897,11 +918,7 @@ void enterSystemOff() {
 }
 
 bool shouldEnterSystemOff(uint32_t now) {
-  if (isVbusPresent()) {
-    return false;
-  }
-
-  if (hasActiveBleConnection()) {
+  if (hasActiveUsbSession()) {
     return false;
   }
 
@@ -917,12 +934,8 @@ bool shouldEnterSystemOff(uint32_t now) {
 }
 
 uint8_t sleepBlockReason() {
-  if (isVbusPresent()) {
+  if (hasActiveUsbSession()) {
     return 4;
-  }
-
-  if (hasActiveBleConnection()) {
-    return 5;
   }
 
   if (buttonState == LOW || lastRawButtonState == LOW) {
