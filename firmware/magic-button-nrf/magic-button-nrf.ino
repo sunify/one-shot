@@ -48,7 +48,6 @@ const uint32_t BUTTON_GROUND_GPIO = NRF_GPIO_PIN_MAP(BUTTON_GROUND_PIN_PORT, BUT
 
 const uint8_t CONFIG_VERSION = 1;
 const uint16_t LONG_PRESS_TIME = 1000;
-const uint32_t BOND_CLEAR_HOLD_TIME = 10000;
 const uint16_t DOUBLE_TAP_INIT_TIME = 100;
 const uint16_t DOUBLE_TAP_TIME = 300;
 const uint16_t DEBOUNCE_TIME = 30;
@@ -105,7 +104,6 @@ bool storageReady = false;
 bool buttonState = HIGH;
 bool lastRawButtonState = HIGH;
 bool longPressSent = false;
-bool bondClearSent = false;
 bool waitForDoubleTap = false;
 uint32_t lastDebounceAt = 0;
 uint32_t pressStartedAt = 0;
@@ -658,16 +656,6 @@ void disconnectAllBleConnections() {
   }
 }
 
-void clearBleBonds() {
-  disconnectAllBleConnections();
-  Bluefruit.Periph.clearBonds();
-  waitForDoubleTap = false;
-  bondClearSent = true;
-  markActivity();
-  pulseDebugLed(4, 120, 120);
-  startAdvertising();
-}
-
 void updateStatusLed(uint32_t now) {
 #if defined(LED_BUILTIN)
   if (!isVbusPresent()) {
@@ -712,10 +700,6 @@ void updateButton(uint32_t now) {
       waitForDoubleTap = false;
     }
 
-    if (buttonState == LOW && !bondClearSent && now - pressStartedAt >= BOND_CLEAR_HOLD_TIME) {
-      clearBleBonds();
-    }
-
     if (waitForDoubleTap && buttonState == HIGH && now - lastReleaseAt >= DOUBLE_TAP_TIME) {
       sendAction(GESTURE_SINGLE_TAP);
       waitForDoubleTap = false;
@@ -729,7 +713,6 @@ void updateButton(uint32_t now) {
   if (buttonState == LOW) {
     pressStartedAt = now;
     longPressSent = false;
-    bondClearSent = false;
     markActivity(now);
     sendButtonEvent(Serial, BUTTON_PRESSED);
     return;
@@ -739,7 +722,7 @@ void updateButton(uint32_t now) {
   sendButtonEvent(Serial, BUTTON_RELEASED);
 
   uint32_t pressDuration = now - pressStartedAt;
-  if (bondClearSent || longPressSent || pressDuration <= DEBOUNCE_TIME) {
+  if (longPressSent || pressDuration <= DEBOUNCE_TIME) {
     return;
   }
 
