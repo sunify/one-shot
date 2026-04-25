@@ -767,7 +767,7 @@ void connectCallback(uint16_t connHandle) {
 
   if (connection) {
     connection->getPeerName(peerName, sizeof(peerName));
-    connection->requestConnectionParameter(40, 4, 400);
+    connection->requestConnectionParameter(100, 20, 600);
   }
 
   if (ENABLE_SERIAL_DEBUG) {
@@ -813,11 +813,12 @@ void securedCallback(uint16_t connHandle) {
 
 void setupBle() {
   Bluefruit.autoConnLed(false);
-  Bluefruit.configPrphBandwidth(BANDWIDTH_NORMAL);
-  Bluefruit.Periph.setConnIntervalMS(30, 50);
-  Bluefruit.Periph.setConnSlaveLatency(4);
-  Bluefruit.Periph.setConnSupervisionTimeoutMS(4000);
+  Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
   Bluefruit.begin();
+  sd_power_dcdc_mode_set(NRF_POWER_DCDC_ENABLE);
+  Bluefruit.Periph.setConnIntervalMS(50, 500);
+  Bluefruit.Periph.setConnSlaveLatency(20);
+  Bluefruit.Periph.setConnSupervisionTimeoutMS(22000);
   Bluefruit.setTxPower(-12);
   Bluefruit.setName(DEVICE_NAME);
 
