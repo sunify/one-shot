@@ -17,11 +17,11 @@ const char *CONFIG_FILE_PATH = "/magic-button.cfg";
 const bool ENABLE_SERIAL_DEBUG = false;
 
 #ifndef BUTTON_PIN_PORT
-#define BUTTON_PIN_PORT 0
+#define BUTTON_PIN_PORT 1
 #endif
 
 #ifndef BUTTON_PIN_NUMBER
-#define BUTTON_PIN_NUMBER 9
+#define BUTTON_PIN_NUMBER 6
 #endif
 
 #if defined(BUTTON_PIN_PORT) && defined(BUTTON_PIN_NUMBER)
@@ -29,21 +29,8 @@ const uint32_t BUTTON_GPIO = NRF_GPIO_PIN_MAP(BUTTON_PIN_PORT, BUTTON_PIN_NUMBER
 #define USE_RAW_BUTTON_GPIO 1
 #endif
 
-#ifndef BUTTON_GROUND_PIN_PORT
-#define BUTTON_GROUND_PIN_PORT 0
-#endif
-
-#ifndef BUTTON_GROUND_PIN_NUMBER
-#define BUTTON_GROUND_PIN_NUMBER 6
-#endif
-
-#if defined(BUTTON_GROUND_PIN_PORT) && defined(BUTTON_GROUND_PIN_NUMBER)
-const uint32_t BUTTON_GROUND_GPIO = NRF_GPIO_PIN_MAP(BUTTON_GROUND_PIN_PORT, BUTTON_GROUND_PIN_NUMBER);
-#define USE_RAW_BUTTON_GROUND_GPIO 1
-#else
 #ifndef BUTTON_GROUND_PIN
 #define BUTTON_GROUND_PIN -1
-#endif
 #endif
 
 const uint8_t CONFIG_VERSION = 1;
@@ -54,7 +41,8 @@ const uint16_t DEBOUNCE_TIME = 30;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint16_t STATUS_BLINK_INTERVAL_MS = 300;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
-const uint32_t SYSTEM_OFF_TIMEOUT_MS = 3600000;
+const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 7200000;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
@@ -69,6 +57,9 @@ const uint16_t DEBUG_LED_GAP_MS = 70;
 const uint16_t DEBUG_REASON_PULSE_MS = 80;
 const uint16_t DEBUG_REASON_GAP_MS = 220;
 const uint32_t SLEEP_DEBUG_REPEAT_MS = 2000;
+const uint32_t PENDING_GESTURE_MAX_AGE_MS = 5000;
+const uint32_t PENDING_GESTURE_RETRY_INTERVAL_MS = 200;
+const uint8_t WAKE_GPIOTE_CHANNEL = 7;
 
 enum UsbHidReportId : uint8_t {
   USB_REPORT_ID_KEYBOARD = 1,
@@ -112,6 +103,13 @@ uint32_t lastBlinkAt = 0;
 uint32_t lastBatteryUpdateAt = 0;
 uint32_t lastActivityAt = 0;
 uint32_t lastSleepDebugAt = 0;
+uint32_t lastConnParamsCheckAt = 0;
+uint16_t lastReportedConnInterval = 0;
+uint16_t lastReportedSlaveLatency = 0xFFFF;
+uint8_t pendingGestureCode = 0;
+uint32_t pendingGestureAt = 0;
+uint32_t lastPendingGestureRetryAt = 0;
+bool sleeping = false;
 bool ledState = false;
 bool batteryInitialized = false;
 bool usbInitialized = false;
@@ -533,6 +531,38 @@ void sendAction(uint8_t gestureCode) {
     Serial.print(" sent=");
     Serial.println(sent ? "yes" : "no");
   }
+
+  if (sent) {
+    pendingGestureCode = 0;
+  } else if (!isUsbHidActive()) {
+    if (pendingGestureCode == 0) {
+      pendingGestureAt = millis();
+    }
+    pendingGestureCode = gestureCode;
+    lastPendingGestureRetryAt = millis();
+  }
+}
+
+bool hasActiveBleConnection();
+void exitSleep();
+
+void flushPendingGesture(uint32_t now) {
+  if (pendingGestureCode == 0) {
+    return;
+  }
+  if (now - pendingGestureAt >= PENDING_GESTURE_MAX_AGE_MS) {
+    pendingGestureCode = 0;
+    return;
+  }
+  if (now - lastPendingGestureRetryAt < PENDING_GESTURE_RETRY_INTERVAL_MS) {
+    return;
+  }
+  if (!hasActiveBleConnection()) {
+    return;
+  }
+  uint8_t code = pendingGestureCode;
+  pendingGestureCode = 0;
+  sendAction(code);
 }
 
 void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
@@ -684,6 +714,10 @@ void updateStatusLed(uint32_t now) {
 void updateButton(uint32_t now) {
   int rawState = readButtonState();
 
+  if (sleeping && rawState == LOW) {
+    exitSleep();
+  }
+
   if (rawState != lastRawButtonState) {
     lastRawButtonState = rawState;
     lastDebounceAt = now;
@@ -756,9 +790,27 @@ void startAdvertising() {
   Bluefruit.ScanResponse.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(160, 1600);
-  Bluefruit.Advertising.setFastTimeout(15);
+  Bluefruit.Advertising.setInterval(48, 1600);
+  Bluefruit.Advertising.setFastTimeout(10);
   Bluefruit.Advertising.start(0);
+}
+
+void printConnParams(BLEConnection *connection, const char *tag) {
+  if (!connection) {
+    return;
+  }
+  uint16_t interval = connection->getConnectionInterval();
+  uint16_t latency = connection->getSlaveLatency();
+  uint16_t timeout = connection->getSupervisionTimeout();
+  Serial.print("[connparams ");
+  Serial.print(tag);
+  Serial.print("] interval=");
+  Serial.print(interval * 1.25f, 2);
+  Serial.print("ms latency=");
+  Serial.print(latency);
+  Serial.print(" timeout=");
+  Serial.print(timeout * 10);
+  Serial.println("ms");
 }
 
 void connectCallback(uint16_t connHandle) {
@@ -767,13 +819,14 @@ void connectCallback(uint16_t connHandle) {
 
   if (connection) {
     connection->getPeerName(peerName, sizeof(peerName));
-    connection->requestConnectionParameter(100, 20, 600);
+    connection->requestConnectionParameter(24, 30, 600);
   }
 
   if (ENABLE_SERIAL_DEBUG) {
     Serial.print("connected: ");
     Serial.println(peerName[0] ? peerName : "unknown");
   }
+  printConnParams(connection, "connect");
   markActivity();
   batteryService.notify(connHandle, batteryLevel);
 }
@@ -809,6 +862,7 @@ void securedCallback(uint16_t connHandle) {
     Serial.print("secured: ");
     Serial.println(peerName[0] ? peerName : "unknown");
   }
+  printConnParams(connection, "secured");
 }
 
 void setupBle() {
@@ -816,9 +870,9 @@ void setupBle() {
   Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
   Bluefruit.begin();
   sd_power_dcdc_mode_set(NRF_POWER_DCDC_ENABLE);
-  Bluefruit.Periph.setConnIntervalMS(50, 500);
-  Bluefruit.Periph.setConnSlaveLatency(20);
-  Bluefruit.Periph.setConnSupervisionTimeoutMS(22000);
+  Bluefruit.Periph.setConnIntervalMS(30, 30);
+  Bluefruit.Periph.setConnSlaveLatency(30);
+  Bluefruit.Periph.setConnSupervisionTimeoutMS(6000);
   Bluefruit.setTxPower(-12);
   Bluefruit.setName(DEVICE_NAME);
 
@@ -877,6 +931,10 @@ void updateUsbState() {
       NVIC_SystemReset();
     }
 
+    if (sleeping) {
+      exitSleep();
+    }
+
     Serial.begin(SERIAL_BAUD);
     delay(50);
     setupUsbHid();
@@ -892,33 +950,99 @@ void updateUsbState() {
   lastVbusPresent = vbusPresent;
 }
 
+void armButtonWakeSense() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  nrf_gpio_cfg_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP);
+
+  NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] =
+      ((uint32_t) GPIOTE_CONFIG_MODE_Event << GPIOTE_CONFIG_MODE_Pos) |
+      ((uint32_t) BUTTON_PIN_NUMBER << GPIOTE_CONFIG_PSEL_Pos) |
+      ((uint32_t) BUTTON_PIN_PORT << GPIOTE_CONFIG_PORT_Pos) |
+      ((uint32_t) GPIOTE_CONFIG_POLARITY_HiToLo << GPIOTE_CONFIG_POLARITY_Pos);
+  NRF_GPIOTE->EVENTS_IN[WAKE_GPIOTE_CHANNEL] = 0;
+  NRF_GPIOTE->INTENSET = (1UL << WAKE_GPIOTE_CHANNEL);
+  NVIC_EnableIRQ(GPIOTE_IRQn);
+#endif
+}
+
+void disarmButtonWakeSense() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  NRF_GPIOTE->INTENCLR = (1UL << WAKE_GPIOTE_CHANNEL);
+  NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] = 0;
+  NRF_GPIOTE->EVENTS_IN[WAKE_GPIOTE_CHANNEL] = 0;
+#endif
+}
+
+void enterSleep() {
+  if (sleeping) {
+    return;
+  }
+  sleeping = true;
+
+#if defined(LED_BUILTIN)
+  digitalWrite(LED_BUILTIN, LOW);
+  ledState = false;
+#endif
+
+  Bluefruit.Advertising.restartOnDisconnect(false);
+  Bluefruit.Advertising.stop();
+  armButtonWakeSense();
+}
+
+void exitSleep() {
+  if (!sleeping) {
+    return;
+  }
+  sleeping = false;
+  disarmButtonWakeSense();
+
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  if (!hasActiveBleConnection()) {
+    startAdvertising();
+  }
+  markActivity();
+}
+
 void enterSystemOff() {
 #if defined(LED_BUILTIN)
   digitalWrite(LED_BUILTIN, LOW);
 #endif
+  disarmButtonWakeSense();
   disconnectAllBleConnections();
   delay(30);
-  pulseDebugLed(3, 25, 40);
   Bluefruit.Advertising.stop();
   delay(10);
 
-#if defined(USE_RAW_BUTTON_GPIO)
-  nrf_gpio_cfg_sense_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
-
   uint8_t softDeviceEnabled = 0;
   (void) sd_softdevice_is_enabled(&softDeviceEnabled);
-
   if (softDeviceEnabled) {
-    (void) sd_power_system_off();
-  } else {
-    NRF_POWER->SYSTEMOFF = 1;
+    (void) sd_softdevice_disable();
+  }
+
+#if defined(USE_RAW_BUTTON_GPIO)
+  NRF_P0->LATCH = 0xFFFFFFFF;
+  NRF_P1->LATCH = 0xFFFFFFFF;
+  NRF_GPIOTE->EVENTS_PORT = 0;
+
+  nrf_gpio_cfg(
+      BUTTON_GPIO,
+      NRF_GPIO_PIN_DIR_INPUT,
+      NRF_GPIO_PIN_INPUT_CONNECT,
+      NRF_GPIO_PIN_PULLUP,
+      NRF_GPIO_PIN_S0S1,
+      NRF_GPIO_PIN_SENSE_LOW);
+
+  NRF_POWER->SYSTEMOFF = 1;
+  __DSB();
+  while (true) {
+    __WFE();
   }
 #else
   systemOff(BUTTON_PIN, LOW);
 #endif
 }
 
-bool shouldEnterSystemOff(uint32_t now) {
+bool shouldEnterSleep(uint32_t now) {
   if (hasActiveUsbSession()) {
     return false;
   }
@@ -931,7 +1055,7 @@ bool shouldEnterSystemOff(uint32_t now) {
     return false;
   }
 
-  return now - lastActivityAt >= SYSTEM_OFF_TIMEOUT_MS;
+  return now - lastActivityAt >= IDLE_SLEEP_TIMEOUT_MS;
 }
 
 uint8_t sleepBlockReason() {
@@ -951,12 +1075,16 @@ uint8_t sleepBlockReason() {
 }
 
 void idleSleep(uint32_t now) {
-  if (shouldEnterSystemOff(now)) {
+  if (sleeping && !hasActiveUsbSession() && now - lastActivityAt >= DEEP_SLEEP_TIMEOUT_MS) {
     enterSystemOff();
     return;
   }
 
-  if (now - lastActivityAt >= SYSTEM_OFF_TIMEOUT_MS) {
+  if (shouldEnterSleep(now)) {
+    enterSleep();
+  }
+
+  if (now - lastActivityAt >= IDLE_SLEEP_TIMEOUT_MS) {
     uint8_t reason = sleepBlockReason();
     if (reason != 0 && now - lastSleepDebugAt >= SLEEP_DEBUG_REPEAT_MS) {
       lastSleepDebugAt = now;
@@ -987,11 +1115,7 @@ void setup() {
 
   const uint32_t resetReason = NRF_POWER->RESETREAS;
   NRF_POWER->RESETREAS = resetReason;
-  if (resetReason & POWER_RESETREAS_OFF_Msk) {
-    pulseDebugLed(2);
-  } else {
-    pulseDebugLed(1);
-  }
+  pulseDebugLed(1);
 
   setupButtonInput();
   setupButtonGround();
@@ -1008,6 +1132,8 @@ void setup() {
   setupBle();
   markActivity();
 
+  Serial.println();
+  Serial.println("=== Magic Button NRF boot ===");
   if (ENABLE_SERIAL_DEBUG) {
     Serial.println();
     Serial.println("Magic Button NRF");
@@ -1039,11 +1165,28 @@ void loop() {
   uint32_t now = millis();
   handleSerial();
   updateButton(now);
+  flushPendingGesture(now);
   updateStatusLed(now);
 
   if (now - lastBatteryUpdateAt >= BATTERY_UPDATE_INTERVAL_MS) {
     lastBatteryUpdateAt = now;
     updateBatteryLevel();
+  }
+
+  if (now - lastConnParamsCheckAt >= 5000) {
+    lastConnParamsCheckAt = now;
+    bool anyConnected = false;
+    for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+      BLEConnection *connection = Bluefruit.Connection(connHandle);
+      if (!connection || !connection->connected()) {
+        continue;
+      }
+      anyConnected = true;
+      printConnParams(connection, "poll");
+    }
+    if (!anyConnected) {
+      Serial.println("[connparams poll] no active BLE connection");
+    }
   }
 
   idleSleep(now);
