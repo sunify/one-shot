@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import { ANIMATION_MODES, DEVICE_TYPES } from '../protocol'
 
-export function useLightingPreview(form, deviceType) {
+export function useLightingPreview(form, deviceType, caseColors) {
   const hsl = computed(() => {
     const r = form.red / 255
     const g = form.green / 255
@@ -39,17 +39,21 @@ export function useLightingPreview(form, deviceType) {
   })
 
   const colorPreviewStyle = computed(() => {
+    const base = {
+      '--button-color': caseColors.keycap,
+      '--top-color': caseColors.topCase,
+      '--top-shade-color': caseColors.topCaseShade,
+      '--bottom-color': caseColors.bottomCase,
+      '--selection-color': caseColors.keycap,
+    }
+
     if (deviceType.value === DEVICE_TYPES.magicButton) {
-      return {
-        '--selection-color': '#5AB9CF',
-        '--top-color': '#FFF',
-        '--top-shade-color': '#FFF',
-        '--button-color': '#5AB9CF',
-      }
+      return base
     }
 
     if (form.animationMode === ANIMATION_MODES.rainbow) {
       return {
+        ...base,
         '--selection-color': 'hsl(280,60%,65%)',
         '--top-color': 'hsl(280,60%,65%)',
         '--top-shade-color': 'transparent',
@@ -57,11 +61,11 @@ export function useLightingPreview(form, deviceType) {
       }
     }
 
+    const dynamicTop = `hsla(${hsl.value.h % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`
     return {
-      '--selection-color': `hsla(${hsl.value.h % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
-      '--top-color': `hsla(${hsl.value.h % 360}, ${hsl.value.s + 10}%, ${Math.max(40, hsl.value.l + 15)}%, ${hsl.value.s / 100})`,
-      '--top-shade-color': '#cf00ff',
-      '--button-color': '#FFF',
+      ...base,
+      '--selection-color': dynamicTop,
+      '--top-color': dynamicTop,
     }
   })
 

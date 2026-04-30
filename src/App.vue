@@ -24,7 +24,7 @@ const {
   updateGesture,
 } = useConfiguratorState()
 
-const { colorPreviewStyle, isRainbow } = useLightingPreview(form, deviceType)
+const { colorPreviewStyle, isRainbow } = useLightingPreview(form, deviceType, caseColors)
 
 const {
   connect,
