@@ -57,6 +57,10 @@
 #define BOTTOM_CASE_B 0xFF
 #endif
 
+#ifndef TOP_CASE_SHADE_ENABLED
+#define TOP_CASE_SHADE_ENABLED 1
+#endif
+
 #define LED_TYPE WS2812
 #define COLOR_ORDER GRB
 
@@ -182,7 +186,7 @@ void sendConfigFrame() {
 }
 
 void sendDeviceInfoFrame() {
-  uint8_t payload[13];
+  uint8_t payload[14];
   payload[0]  = NUM_LEDS;
   payload[1]  = KEYCAP_R;
   payload[2]  = KEYCAP_G;
@@ -196,6 +200,7 @@ void sendDeviceInfoFrame() {
   payload[10] = BOTTOM_CASE_R;
   payload[11] = BOTTOM_CASE_G;
   payload[12] = BOTTOM_CASE_B;
+  payload[13] = TOP_CASE_SHADE_ENABLED;
   sendFrame(Serial, CMD_DEVICE_INFO, payload, sizeof(payload));
 }
 

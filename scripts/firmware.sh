@@ -69,7 +69,14 @@ case "$TARGET" in
 
     append_color_flags "keycap" "KEYCAP"
     append_color_flags "top_case" "TOP_CASE"
-    append_color_flags "top_case_shade" "TOP_CASE_SHADE"
+
+    SHADE_VALUE=$(jq -r '.colors.top_case_shade // empty' "$PROFILE_FILE")
+    if [ "$SHADE_VALUE" = "none" ]; then
+      EXTRA_FLAGS="${EXTRA_FLAGS} -DTOP_CASE_SHADE_ENABLED=0"
+    else
+      append_color_flags "top_case_shade" "TOP_CASE_SHADE"
+    fi
+
     append_color_flags "bottom_case" "BOTTOM_CASE"
 
     ROTARY_ENABLED=$(jq -r '.rotary_enabled // false' "$PROFILE_FILE")

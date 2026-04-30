@@ -25,28 +25,32 @@
 
 ### Payload `CMD_DEVICE_INFO`
 
-13 байт, фиксированный layout:
+14 байт, фиксированный layout:
 
 ```
 offset  size  field
 0       1     num_leds
-1       3     keycap_rgb       (R, G, B)
-4       3     top_case_rgb     (R, G, B)
-7       3     top_case_shade   (R, G, B)
-10      3     bottom_case_rgb  (R, G, B)
+1       3     keycap_rgb              (R, G, B)
+4       3     top_case_rgb            (R, G, B)
+7       3     top_case_shade          (R, G, B)
+10      3     bottom_case_rgb         (R, G, B)
+13      1     top_case_shade_enabled  (0 = нет shade-слоя, 1 = есть)
 ```
 
-Если в будущем понадобятся ещё поля — дописываем в конец. Старый клиент читает первые 13 байт и игнорирует остальное; новый клиент учитывает реальную длину `payload_len` из заголовка кадра.
+`top_case_shade_enabled` нужен, чтобы отличать «нет полупрозрачного слоя поверх корпуса» от «слой есть, цвет белый» — последнее всё равно слегка осветляет. В JSON-профиле выражается как `"top_case_shade": "none"`.
+
+Если в будущем понадобятся ещё поля — дописываем в конец. Старый клиент читает первые 13 байт и игнорирует остальное; новый клиент учитывает реальную длину `payload_len` из заголовка кадра. Если приходит payload длиной 13 (старая прошивка нового конфигуратору не отвечает, но если когда-нибудь вернётся 13 байт), `top_case_shade_enabled` интерпретируется как `1`.
 
 ## Прошивка one-shot
 
 `firmware/one-shot/one-shot.ino`:
 
-- Новый хендлер `CMD_GET_DEVICE_INFO`: собирает 13-байтовый payload из compile-time дефайнов и шлёт `CMD_DEVICE_INFO`.
+- Новый хендлер `CMD_GET_DEVICE_INFO`: собирает 14-байтовый payload из compile-time дефайнов и шлёт `CMD_DEVICE_INFO`.
 - Новые дефайны с дефолтами (срабатывают, когда `firmware.sh` не пробросил `-D`):
   - `KEYCAP_R = 0xFF`, `KEYCAP_G = 0xFF`, `KEYCAP_B = 0xFF`
   - `TOP_CASE_R = 0xFF`, `TOP_CASE_G = 0xFF`, `TOP_CASE_B = 0xFF`
   - `TOP_CASE_SHADE_R = 0xCF`, `TOP_CASE_SHADE_G = 0x00`, `TOP_CASE_SHADE_B = 0xFF`
+  - `TOP_CASE_SHADE_ENABLED = 1`
   - `BOTTOM_CASE_R = 0xFF`, `BOTTOM_CASE_G = 0xFF`, `BOTTOM_CASE_B = 0xFF`
 
 Эти дефолты повторяют то, что сейчас захардкожено в [useLightingPreview.js](../../../src/composables/useLightingPreview.js) и [DevicePreview.vue](../../../src/components/DevicePreview.vue) для one-shot. Существующие профили без блока `colors` компилируются один-в-один как сейчас.
@@ -67,16 +71,13 @@ offset  size  field
 
 ## Сборка прошивки (`scripts/firmware.sh`)
 
-Для one-shot из профиля читается опциональный блок `colors`:
+Для one-shot из профиля читается опциональный блок `colors`. Каждое цветовое поле либо `#RRGGBB`, либо отсутствует (тогда дефолт из `.ino`). Дополнительно `top_case_shade` поддерживает значение `"none"`.
 
 ```sh
-KEYCAP_HEX=$(jq -r '.colors.keycap // empty' "$PROFILE_FILE")
-TOP_CASE_HEX=$(jq -r '.colors.top_case // empty' "$PROFILE_FILE")
-TOP_CASE_SHADE_HEX=$(jq -r '.colors.top_case_shade // empty' "$PROFILE_FILE")
-BOTTOM_CASE_HEX=$(jq -r '.colors.bottom_case // empty' "$PROFILE_FILE")
+hex=$(jq -r ".colors.${key} // empty" "$PROFILE_FILE")
 ```
 
-Если значение задано — парсится как `#RRGGBB`, в `EXTRA_FLAGS` добавляются `-DKEYCAP_R=...`, `-DKEYCAP_G=...`, `-DKEYCAP_B=...` и т. д. Если поле отсутствует — флаги не пробрасываются, в `.ino` срабатывает дефолт.
+Если значение задано как `#RRGGBB` — парсится в R/G/B и в `EXTRA_FLAGS` добавляются `-D${prefix}_R=...`, `-D${prefix}_G=...`, `-D${prefix}_B=...`. Для `top_case_shade == "none"` пробрасывается только `-DTOP_CASE_SHADE_ENABLED=0`; RGB не трогается, в `.ino` остаются дефолты.
 
 ## Профили (`profiles/*.json`)
 
@@ -91,7 +92,7 @@ BOTTOM_CASE_HEX=$(jq -r '.colors.bottom_case // empty' "$PROFILE_FILE")
 }
 ```
 
-Все поля опциональные; отсутствующее значение = дефолт из `.ino`. Для существующих профилей блок не обязателен.
+Все поля опциональные; отсутствующее значение = дефолт из `.ino`. У `top_case_shade` есть спец-значение `"none"` — отключает полупрозрачный shade-слой целиком (нужно для прозрачных корпусов без оттенения). Для существующих профилей блок не обязателен.
 
 ## Конфигуратор
 

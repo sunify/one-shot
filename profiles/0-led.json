@@ -7,9 +7,9 @@
   "usb_product": "One Shot",
   "usb_manufacturer": "lunyov",
   "colors": {
-    "keycap": "#FFFFFF",
-    "top_case": "#FFFFFF",
-    "top_case_shade": "#CF00FF",
-    "bottom_case": "#FFFFFF"
+    "keycap": "#dcf2e5",
+    "top_case": "#6fc4ff",
+    "top_case_shade": "none",
+    "bottom_case": "#dcf2e5"
   }
 }

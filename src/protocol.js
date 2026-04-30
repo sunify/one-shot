@@ -594,11 +594,13 @@ export function decodeDeviceInfo(payload) {
     throw new Error(`Unexpected device info payload size: ${payload.length}`)
   }
 
+  const shadeEnabled = payload.length >= 14 ? payload[13] !== 0 : true
+
   return {
     numLeds: payload[0],
     keycap: rgbToHex(payload[1], payload[2], payload[3]),
     topCase: rgbToHex(payload[4], payload[5], payload[6]),
-    topCaseShade: rgbToHex(payload[7], payload[8], payload[9]),
+    topCaseShade: shadeEnabled ? rgbToHex(payload[7], payload[8], payload[9]) : 'transparent',
     bottomCase: rgbToHex(payload[10], payload[11], payload[12]),
   }
 }
