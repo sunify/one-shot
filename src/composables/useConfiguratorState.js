@@ -13,6 +13,13 @@ export function useConfiguratorState() {
   const deviceType = ref(DEVICE_TYPES.oneShot)
   const isDevicePressed = ref(false)
   const suppressAutoSave = ref(false)
+  const numLeds = ref(1)
+  const caseColors = reactive({
+    keycap: '#ffffff',
+    topCase: '#ffffff',
+    topCaseShade: '#cf00ff',
+    bottomCase: '#ffffff',
+  })
 
   const form = reactive({
     deviceType: DEVICE_TYPES.oneShot,
@@ -37,7 +44,7 @@ export function useConfiguratorState() {
     },
   })
 
-  const supportsLighting = computed(() => deviceType.value === DEVICE_TYPES.oneShot)
+  const supportsLighting = computed(() => numLeds.value > 0)
   const hasEncoder = computed(() => form.encoderCW != null)
 
   const gestureFields = computed(() => {
@@ -92,13 +99,24 @@ export function useConfiguratorState() {
     form[field] = gesture
   }
 
+  function applyDeviceInfo(info) {
+    numLeds.value = info.numLeds
+    caseColors.keycap = info.keycap
+    caseColors.topCase = info.topCase
+    caseColors.topCaseShade = info.topCaseShade
+    caseColors.bottomCase = info.bottomCase
+  }
+
   return {
     applyConfig,
+    applyDeviceInfo,
+    caseColors,
     deviceType,
     form,
     gestureFields,
     hasEncoder,
     isDevicePressed,
+    numLeds,
     selectedColor,
     supportsLighting,
     suppressAutoSave,
