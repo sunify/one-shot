@@ -16,6 +16,47 @@
 #ifndef NUM_LEDS
 #define NUM_LEDS 2
 #endif
+
+#ifndef KEYCAP_R
+#define KEYCAP_R 0xFF
+#endif
+#ifndef KEYCAP_G
+#define KEYCAP_G 0xFF
+#endif
+#ifndef KEYCAP_B
+#define KEYCAP_B 0xFF
+#endif
+
+#ifndef TOP_CASE_R
+#define TOP_CASE_R 0xFF
+#endif
+#ifndef TOP_CASE_G
+#define TOP_CASE_G 0xFF
+#endif
+#ifndef TOP_CASE_B
+#define TOP_CASE_B 0xFF
+#endif
+
+#ifndef TOP_CASE_SHADE_R
+#define TOP_CASE_SHADE_R 0xCF
+#endif
+#ifndef TOP_CASE_SHADE_G
+#define TOP_CASE_SHADE_G 0x00
+#endif
+#ifndef TOP_CASE_SHADE_B
+#define TOP_CASE_SHADE_B 0xFF
+#endif
+
+#ifndef BOTTOM_CASE_R
+#define BOTTOM_CASE_R 0xFF
+#endif
+#ifndef BOTTOM_CASE_G
+#define BOTTOM_CASE_G 0xFF
+#endif
+#ifndef BOTTOM_CASE_B
+#define BOTTOM_CASE_B 0xFF
+#endif
+
 #define LED_TYPE WS2812
 #define COLOR_ORDER GRB
 
@@ -138,6 +179,24 @@ void resetConfig() {
 
 void sendConfigFrame() {
   sendFrame(Serial, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
+}
+
+void sendDeviceInfoFrame() {
+  uint8_t payload[13];
+  payload[0]  = NUM_LEDS;
+  payload[1]  = KEYCAP_R;
+  payload[2]  = KEYCAP_G;
+  payload[3]  = KEYCAP_B;
+  payload[4]  = TOP_CASE_R;
+  payload[5]  = TOP_CASE_G;
+  payload[6]  = TOP_CASE_B;
+  payload[7]  = TOP_CASE_SHADE_R;
+  payload[8]  = TOP_CASE_SHADE_G;
+  payload[9]  = TOP_CASE_SHADE_B;
+  payload[10] = BOTTOM_CASE_R;
+  payload[11] = BOTTOM_CASE_G;
+  payload[12] = BOTTOM_CASE_B;
+  sendFrame(Serial, CMD_DEVICE_INFO, payload, sizeof(payload));
 }
 
 void powerOnBlink() {
@@ -493,6 +552,8 @@ void handleSerial() {
       sendConfigFrame();
     } else if (cmd == CMD_PING) {
       sendPingFrame(Serial, DEVICE_TYPE_ONE_SHOT, USB_PRODUCT);
+    } else if (cmd == CMD_GET_DEVICE_INFO) {
+      sendDeviceInfoFrame();
     } else {
       sendError(Serial, STATUS_BAD_COMMAND);
     }
