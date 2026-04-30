@@ -2,11 +2,13 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   BUTTON_EVENT_STATE,
   COMMANDS,
+  DEFAULT_DEVICE_INFO,
   DEVICE_TYPES,
   SERIAL_BAUD,
   STATUS,
   buildFrame,
   decodeConfig,
+  decodeDeviceInfo,
   encodeConfig,
   parseFrames,
 } from '../protocol'
@@ -88,7 +90,7 @@ function normalizeSerialError(error) {
   return message || 'Не удалось подключить устройство'
 }
 
-export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePressed }) {
+export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, form, isDevicePressed }) {
   const port = ref(null)
   const reader = ref(null)
   const writer = ref(null)
@@ -148,12 +150,12 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
     await refreshKnownPorts()
   }
 
-  async function waitForFrame(expectedCommands) {
+  async function waitForFrame(expectedCommands, timeoutMs = 1500) {
     return new Promise((resolve, reject) => {
       const timeoutId = window.setTimeout(() => {
         pendingResolver.value = null
         reject(new Error('Таймаут ожидания ответа от устройства'))
-      }, 1500)
+      }, timeoutMs)
 
       pendingResolver.value = (frame) => {
         window.clearTimeout(timeoutId)
@@ -230,12 +232,12 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
     }
   }
 
-  async function sendCommand(command, payload = new Uint8Array(), expected = [COMMANDS.ack]) {
+  async function sendCommand(command, payload = new Uint8Array(), expected = [COMMANDS.ack], timeoutMs = 1500) {
     if (!writer.value) {
       throw new Error('Сначала подключите устройство')
     }
 
-    const responsePromise = waitForFrame(expected)
+    const responsePromise = waitForFrame(expected, timeoutMs)
     await writer.value.write(buildFrame(command, payload))
     return responsePromise
   }
@@ -289,6 +291,28 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
     statusText.value = 'Подключено'
   }
 
+  async function fetchDeviceInfo() {
+    try {
+      const frame = await sendCommand(
+        COMMANDS.getDeviceInfo,
+        new Uint8Array(),
+        [COMMANDS.deviceInfo, COMMANDS.error],
+        500,
+      )
+
+      if (frame.command === COMMANDS.deviceInfo) {
+        applyDeviceInfo(decodeDeviceInfo(frame.payload))
+        return
+      }
+    } catch (error) {
+      // Старая прошивка не знает CMD_GET_DEVICE_INFO либо не отвечает —
+      // фолбэчимся на дефолты по deviceType.
+    }
+
+    const fallback = DEFAULT_DEVICE_INFO[deviceType.value] ?? DEFAULT_DEVICE_INFO[DEVICE_TYPES.oneShot]
+    applyDeviceInfo(fallback)
+  }
+
   async function connect() {
     if (!('serial' in navigator)) {
       statusText.value = 'Конфигуратор работает только в Chromium-браузерах'
@@ -320,6 +344,7 @@ export function useDeviceConnection({ applyConfig, deviceType, form, isDevicePre
       statusText.value = ''
       void readLoop()
       await verifyDevice()
+      await fetchDeviceInfo()
       isConnected.value = true
       await refreshConfig()
     } catch (error) {
