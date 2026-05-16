@@ -12,6 +12,8 @@ import { HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS, getDeviceName
 
 const {
   applyConfig,
+  applyDeviceInfo,
+  caseColors,
   deviceType,
   form,
   gestureFields,
@@ -22,7 +24,7 @@ const {
   updateGesture,
 } = useConfiguratorState()
 
-const { colorPreviewStyle, isRainbow } = useLightingPreview(form, deviceType)
+const { colorPreviewStyle, isRainbow } = useLightingPreview(form, deviceType, caseColors, supportsLighting)
 
 const {
   connect,
@@ -36,6 +38,7 @@ const {
   statusText,
 } = useDeviceConnection({
   applyConfig,
+  applyDeviceInfo,
   deviceType,
   form,
   isDevicePressed,

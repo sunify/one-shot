@@ -1,0 +1,15 @@
+{
+  "button_ground_pin": "9",
+  "button_input_pin": "10",
+  "data_pin": "A3",
+  "num_leds": 0,
+  "rotary_enabled": false,
+  "usb_product": "One Shot",
+  "usb_manufacturer": "lunyov",
+  "colors": {
+    "keycap": "#dcf2e5",
+    "top_case": "#6fc4ff",
+    "top_case_shade": "none",
+    "bottom_case": "#dcf2e5"
+  }
+}

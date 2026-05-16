@@ -45,6 +45,40 @@ case "$TARGET" in
 
     EXTRA_FLAGS="-DBTN_GROUND_PIN=${BTN_GROUND_PIN} -DBTN_INPUT_PIN=${BTN_INPUT_PIN} -DDATA_PIN=${DATA_PIN} -DNUM_LEDS=${NUM_LEDS}"
 
+    append_color_flags() {
+      key="$1"
+      prefix="$2"
+      hex=$(jq -r ".colors.${key} // empty" "$PROFILE_FILE")
+      if [ -z "$hex" ]; then
+        return
+      fi
+
+      hex_no_hash="${hex#\#}"
+      if [ "${#hex_no_hash}" -ne 6 ]; then
+        echo "Invalid color in profile: ${key}=${hex}" >&2
+        exit 1
+      fi
+
+      r="0x${hex_no_hash%????}"
+      g_b="${hex_no_hash#??}"
+      g="0x${g_b%??}"
+      b="0x${hex_no_hash#????}"
+
+      EXTRA_FLAGS="${EXTRA_FLAGS} -D${prefix}_R=${r} -D${prefix}_G=${g} -D${prefix}_B=${b}"
+    }
+
+    append_color_flags "keycap" "KEYCAP"
+    append_color_flags "top_case" "TOP_CASE"
+
+    SHADE_VALUE=$(jq -r '.colors.top_case_shade // empty' "$PROFILE_FILE")
+    if [ "$SHADE_VALUE" = "none" ]; then
+      EXTRA_FLAGS="${EXTRA_FLAGS} -DTOP_CASE_SHADE_ENABLED=0"
+    else
+      append_color_flags "top_case_shade" "TOP_CASE_SHADE"
+    fi
+
+    append_color_flags "bottom_case" "BOTTOM_CASE"
+
     ROTARY_ENABLED=$(jq -r '.rotary_enabled // false' "$PROFILE_FILE")
     if [ "$ROTARY_ENABLED" = "true" ]; then
       ROTARY_A_PIN=$(jq -r '.rotary_a_pin' "$PROFILE_FILE")

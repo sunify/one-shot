@@ -7,9 +7,11 @@ export const COMMANDS = {
   setConfig: 0x02,
   resetConfig: 0x03,
   ping: 0x04,
+  getDeviceInfo: 0x05,
   config: 0x81,
   ack: 0x82,
   pong: 0x84,
+  deviceInfo: 0x85,
   buttonEvent: 0x90,
   error: 0xff,
 }
@@ -581,4 +583,41 @@ export function getDeviceName(deviceType) {
   }
 
   return 'One Shot'
+}
+
+function rgbToHex(r, g, b) {
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`
+}
+
+export function decodeDeviceInfo(payload) {
+  if (payload.length < 13) {
+    throw new Error(`Unexpected device info payload size: ${payload.length}`)
+  }
+
+  const shadeEnabled = payload.length >= 14 ? payload[13] !== 0 : true
+
+  return {
+    numLeds: payload[0],
+    keycap: rgbToHex(payload[1], payload[2], payload[3]),
+    topCase: rgbToHex(payload[4], payload[5], payload[6]),
+    topCaseShade: shadeEnabled ? rgbToHex(payload[7], payload[8], payload[9]) : 'transparent',
+    bottomCase: rgbToHex(payload[10], payload[11], payload[12]),
+  }
+}
+
+export const DEFAULT_DEVICE_INFO = {
+  [DEVICE_TYPES.oneShot]: {
+    numLeds: 1,
+    keycap: '#ffffff',
+    topCase: '#ffffff',
+    topCaseShade: '#cf00ff',
+    bottomCase: '#ffffff',
+  },
+  [DEVICE_TYPES.magicButton]: {
+    numLeds: 0,
+    keycap: '#5ab9cf',
+    topCase: '#ffffff',
+    topCaseShade: '#ffffff',
+    bottomCase: '#ffffff',
+  },
 }
