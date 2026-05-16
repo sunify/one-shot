@@ -69,7 +69,7 @@ export function useLightingPreview(form, deviceType, caseColors, supportsLightin
     }
   })
 
-  const isRainbow = computed(() => form.animationMode === ANIMATION_MODES.rainbow)
+  const isRainbow = computed(() => supportsLighting.value && form.animationMode === ANIMATION_MODES.rainbow)
 
   return {
     colorPreviewStyle,
