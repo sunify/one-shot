@@ -1,0 +1,1613 @@
+#include <Adafruit_TinyUSB.h>
+#include <bluefruit.h>
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+#include "nrf_gpio.h"
+#include "nrf_power.h"
+#include "device_protocol.h"
+
+using namespace Adafruit_LittleFS_Namespace;
+
+namespace {
+
+const char *DEVICE_NAME = "Super Magic Button";
+const char *MANUFACTURER_NAME = "Huntflow";
+const char *MODEL_NAME = "Super Magic Button";
+const char *CONFIG_FILE_PATH = "/magic-button.cfg";
+const bool ENABLE_SERIAL_DEBUG = false;
+const bool FORCE_BLE_HID_ONLY = false;
+
+#ifndef BUTTON_PIN_PORT
+#define BUTTON_PIN_PORT 0
+#endif
+
+#ifndef BUTTON_PIN_NUMBER
+#define BUTTON_PIN_NUMBER 20
+#endif
+
+#if defined(BUTTON_PIN_PORT) && defined(BUTTON_PIN_NUMBER)
+const uint32_t BUTTON_GPIO = NRF_GPIO_PIN_MAP(BUTTON_PIN_PORT, BUTTON_PIN_NUMBER);
+#define USE_RAW_BUTTON_GPIO 1
+#endif
+
+#ifndef BUTTON_GROUND_PIN_PORT
+#define BUTTON_GROUND_PIN_PORT -1
+#endif
+
+#ifndef BUTTON_GROUND_PIN_NUMBER
+#define BUTTON_GROUND_PIN_NUMBER -1
+#endif
+
+#if BUTTON_GROUND_PIN_PORT >= 0 && BUTTON_GROUND_PIN_NUMBER >= 0
+const uint32_t BUTTON_GROUND_GPIO = NRF_GPIO_PIN_MAP(BUTTON_GROUND_PIN_PORT, BUTTON_GROUND_PIN_NUMBER);
+#define USE_RAW_BUTTON_GROUND_GPIO 1
+#endif
+
+const uint8_t CONFIG_VERSION = 1;
+const uint16_t LONG_PRESS_TIME = 600;
+const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
+const uint16_t DOUBLE_TAP_TIME = 250;
+const uint16_t DEBOUNCE_TIME = 10;
+const uint16_t REPORT_DELAY_MS = 12;
+const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 120000;
+const uint16_t ACTIVE_POLL_DELAY_MS = 5;
+const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
+const uint8_t BATTERY_SAMPLE_COUNT = 3;
+const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
+const int16_t BATTERY_CALIBRATION_OFFSET_MV = 0;
+const float VDDH_MV_PER_LSB = 3.66210938F;
+const bool IDLE_USES_SYSTEM_OFF = false;
+const uint16_t BLE_ADVERTISING_INTERVAL_MIN = 32;
+const uint16_t BLE_ADVERTISING_INTERVAL_MAX = 48;
+const uint16_t BLE_ADVERTISING_FAST_TIMEOUT_SEC = 30;
+const uint16_t BLE_CONN_INTERVAL_MIN = 9;
+const uint16_t BLE_CONN_INTERVAL_MAX = 12;
+const uint16_t BLE_CONN_SLAVE_LATENCY = 0;
+const uint16_t BLE_CONN_SUPERVISION_TIMEOUT = 400;
+const int8_t BLE_TX_POWER_DBM = 0;
+const uint32_t STATUS_LED_GPIO = NRF_GPIO_PIN_MAP(0, 22);
+const bool STATUS_LED_ACTIVE_LOW = false;
+const uint32_t DEBUG_LED_GPIO = STATUS_LED_GPIO;
+const uint16_t DEBUG_LED_PULSE_MS = 40;
+const uint16_t DEBUG_LED_GAP_MS = 70;
+const uint16_t DEBUG_REASON_PULSE_MS = 80;
+const uint16_t DEBUG_REASON_GAP_MS = 220;
+const uint16_t PENDING_DEBUG_PULSE_MS = 120;
+const uint16_t PENDING_DEBUG_GAP_MS = 120;
+const uint32_t SLEEP_DEBUG_REPEAT_MS = 2000;
+const uint32_t PENDING_GESTURE_MAX_AGE_MS = 120000;
+const uint32_t PENDING_GESTURE_RETRY_INTERVAL_MS = 200;
+const uint32_t BLE_HID_PROBE_INTERVAL_MS = 100;
+const uint8_t BLE_HID_READY_STABLE_COUNT = 5;
+const uint8_t WAKE_GPIOTE_CHANNEL = 7;
+
+enum UsbHidReportId : uint8_t {
+  USB_REPORT_ID_KEYBOARD = 1,
+  USB_REPORT_ID_CONSUMER_CONTROL = 2,
+};
+
+const uint8_t USB_HID_REPORT_DESCRIPTOR[] = {
+    TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(USB_REPORT_ID_KEYBOARD)),
+    TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(USB_REPORT_ID_CONSUMER_CONTROL)),
+};
+
+enum GestureCode : uint8_t {
+  GESTURE_SINGLE_TAP = 1,
+  GESTURE_DOUBLE_TAP = 2,
+  GESTURE_LONG_PRESS = 3
+};
+
+struct __attribute__((packed)) DeviceConfig {
+  uint8_t version;
+  GestureAction singleTap;
+  GestureAction doubleTap;
+  GestureAction longPress;
+  uint8_t crc;
+};
+
+class MagicButtonBleHid : public BLEHidAdafruit {
+ public:
+  void setInputReportCccdCallback(BLECharacteristic::write_cccd_cb_t callback) {
+    if (_chr_inputs) {
+      _chr_inputs[0].setCccdWriteCallback(callback);
+      _chr_inputs[1].setCccdWriteCallback(callback);
+    }
+    if (_chr_boot_keyboard_input) {
+      _chr_boot_keyboard_input->setCccdWriteCallback(callback);
+    }
+  }
+
+  bool keyboardNotifyEnabled(uint16_t connHandle) {
+    if (isBootMode()) {
+      return _chr_boot_keyboard_input && _chr_boot_keyboard_input->notifyEnabled(connHandle);
+    }
+
+    return _chr_inputs && _chr_inputs[0].notifyEnabled(connHandle);
+  }
+
+  bool consumerNotifyEnabled(uint16_t connHandle) {
+    return !isBootMode() && _chr_inputs && _chr_inputs[1].notifyEnabled(connHandle);
+  }
+
+  bool isKeyboardInputReport(BLECharacteristic *characteristic) {
+    return characteristic &&
+           ((_chr_inputs && characteristic == &_chr_inputs[0]) ||
+            (_chr_boot_keyboard_input && characteristic == _chr_boot_keyboard_input));
+  }
+
+  bool isConsumerInputReport(BLECharacteristic *characteristic) {
+    return characteristic && _chr_inputs && characteristic == &_chr_inputs[1];
+  }
+};
+
+BLEDis deviceInfo;
+MagicButtonBleHid hid;
+BLEBas batteryService;
+Adafruit_USBD_HID usbHid;
+DeviceConfig config;
+
+bool storageReady = false;
+bool buttonState = HIGH;
+bool lastRawButtonState = HIGH;
+bool longPressSent = false;
+bool bondsClearedThisPress = false;
+bool waitForDoubleTap = false;
+uint32_t lastDebounceAt = 0;
+uint32_t pressStartedAt = 0;
+uint32_t lastReleaseAt = 0;
+uint32_t lastActivityAt = 0;
+uint32_t lastSleepDebugAt = 0;
+uint32_t lastConnParamsCheckAt = 0;
+uint32_t lastBatteryUpdateAt = 0;
+uint16_t lastReportedConnInterval = 0;
+uint16_t lastReportedSlaveLatency = 0xFFFF;
+uint8_t pendingGestureCode = 0;
+uint32_t pendingGestureAt = 0;
+uint32_t lastPendingGestureRetryAt = 0;
+uint8_t pendingBleReadyStableCount = 0;
+bool pendingWakeGesture = false;
+bool sleeping = false;
+bool usbInitialized = false;
+bool usbVbusActive = false;
+bool lastVbusPresent = false;
+bool wokeFromSystemOff = false;
+bool wokeFromButtonLatch = false;
+bool bleHidReady = false;
+uint32_t lastBleHidProbeAt = 0;
+uint32_t lastHeartbeatAt = 0;
+bool keyboardNotifySubscribedThisConnection = false;
+bool consumerNotifySubscribedThisConnection = false;
+bool batteryInitialized = false;
+uint8_t batteryLevel = 100;
+uint16_t batteryMillivolts = 4200;
+
+const uint32_t HEARTBEAT_INTERVAL_MS = 2500;
+
+void setupDebugLed() {
+  nrf_gpio_cfg_output(DEBUG_LED_GPIO);
+  nrf_gpio_pin_clear(DEBUG_LED_GPIO);
+}
+
+void setStatusLed(bool enabled) {
+  bool driveHigh = STATUS_LED_ACTIVE_LOW ? !enabled : enabled;
+  if (driveHigh) {
+    nrf_gpio_pin_set(STATUS_LED_GPIO);
+  } else {
+    nrf_gpio_pin_clear(STATUS_LED_GPIO);
+  }
+}
+
+void setupStatusLed() {
+  nrf_gpio_cfg_output(STATUS_LED_GPIO);
+  setStatusLed(false);
+}
+
+void setDebugLed(bool enabled) {
+  if (enabled) {
+    nrf_gpio_pin_set(DEBUG_LED_GPIO);
+  } else {
+    nrf_gpio_pin_clear(DEBUG_LED_GPIO);
+  }
+}
+
+void pulseDebugLed(uint8_t pulses, uint16_t pulseMs = DEBUG_LED_PULSE_MS, uint16_t gapMs = DEBUG_LED_GAP_MS) {
+  for (uint8_t i = 0; i < pulses; i++) {
+    setDebugLed(true);
+    delay(pulseMs);
+    setDebugLed(false);
+
+    if (i + 1 < pulses) {
+      delay(gapMs);
+    }
+  }
+}
+
+void pulseStatusLed(uint8_t pulses, uint16_t pulseMs = PENDING_DEBUG_PULSE_MS, uint16_t gapMs = PENDING_DEBUG_GAP_MS) {
+  for (uint8_t i = 0; i < pulses; i++) {
+    setStatusLed(true);
+    delay(pulseMs);
+    setStatusLed(false);
+
+    if (i + 1 < pulses) {
+      delay(gapMs);
+    }
+  }
+}
+
+void debugPrintln(const char *message) {
+  if (!ENABLE_SERIAL_DEBUG) {
+    return;
+  }
+
+  Serial.println(message);
+}
+
+bool shouldLogSerial() {
+  return false;
+  return ENABLE_SERIAL_DEBUG || usbVbusActive;
+}
+
+bool isUsbHidActive();
+int readButtonState();
+
+void markActivity(uint32_t now = millis()) {
+  lastActivityAt = now;
+}
+
+bool shouldQueueWakeGesture() {
+  return !isUsbHidActive() && wokeFromButtonLatch;
+}
+
+void resetBleHidReadyState() {
+  bleHidReady = false;
+  lastBleHidProbeAt = 0;
+  pendingBleReadyStableCount = 0;
+  keyboardNotifySubscribedThisConnection = false;
+  consumerNotifySubscribedThisConnection = false;
+}
+
+void hidInputCccdCallback(uint16_t connHandle, BLECharacteristic *characteristic, uint16_t value) {
+  (void) connHandle;
+
+  bool notifyEnabled = (value & BLE_GATT_HVX_NOTIFICATION) != 0;
+  if (hid.isKeyboardInputReport(characteristic)) {
+    keyboardNotifySubscribedThisConnection = notifyEnabled;
+  } else if (hid.isConsumerInputReport(characteristic)) {
+    consumerNotifySubscribedThisConnection = notifyEnabled;
+  }
+
+  if (notifyEnabled && pendingGestureCode != 0) {
+    lastPendingGestureRetryAt = 0;
+  }
+}
+
+void queuePendingGesture(uint8_t gestureCode, uint32_t now = millis(), bool wakeGesture = false) {
+  if (pendingGestureCode == 0) {
+    pendingGestureAt = now;
+    pendingBleReadyStableCount = 0;
+    pendingWakeGesture = wakeGesture;
+  }
+  pendingGestureCode = gestureCode;
+  lastPendingGestureRetryAt = now;
+}
+
+void setupButtonInput() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  nrf_gpio_cfg_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP);
+#else
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+#endif
+}
+
+int readButtonState() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  return nrf_gpio_pin_read(BUTTON_GPIO) ? HIGH : LOW;
+#else
+  return digitalRead(BUTTON_PIN);
+#endif
+}
+
+void setupButtonGround() {
+#if defined(USE_RAW_BUTTON_GROUND_GPIO)
+  nrf_gpio_cfg_output(BUTTON_GROUND_GPIO);
+  nrf_gpio_pin_clear(BUTTON_GROUND_GPIO);
+#endif
+}
+
+void holdButtonGroundLow() {
+#if defined(USE_RAW_BUTTON_GROUND_GPIO)
+  nrf_gpio_cfg_output(BUTTON_GROUND_GPIO);
+  nrf_gpio_pin_clear(BUTTON_GROUND_GPIO);
+#endif
+}
+
+uint16_t readBatteryMillivolts() {
+#ifdef SAADC_CH_PSELP_PSELP_VDDHDIV5
+  analogReference(AR_INTERNAL_3_0);
+  analogReadResolution(12);
+  delay(1);
+
+  uint32_t rawSum = 0;
+  for (uint8_t i = 0; i < BATTERY_SAMPLE_COUNT; i++) {
+    rawSum += analogReadVDDHDIV5();
+  }
+
+  analogReference(AR_DEFAULT);
+  analogReadResolution(10);
+
+  return static_cast<uint16_t>((rawSum / BATTERY_SAMPLE_COUNT) * VDDH_MV_PER_LSB) + BATTERY_CALIBRATION_OFFSET_MV;
+#elif defined(SAADC_CH_PSELP_PSELP_VDD)
+  analogReference(AR_INTERNAL_3_0);
+  analogReadResolution(12);
+  delay(1);
+
+  uint32_t rawSum = 0;
+  for (uint8_t i = 0; i < BATTERY_SAMPLE_COUNT; i++) {
+    rawSum += analogReadVDD();
+  }
+
+  analogReference(AR_DEFAULT);
+  analogReadResolution(10);
+
+  return static_cast<uint16_t>((rawSum / BATTERY_SAMPLE_COUNT) * 0.73242188F) + BATTERY_CALIBRATION_OFFSET_MV;
+#else
+  return batteryMillivolts;
+#endif
+}
+
+uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
+  struct BatteryPoint {
+    uint16_t millivolts;
+    uint8_t percent;
+  };
+
+  static const BatteryPoint curve[] = {
+      {4200, 100},
+      {4150, 96},
+      {4100, 90},
+      {4050, 83},
+      {4000, 75},
+      {3950, 65},
+      {3900, 55},
+      {3850, 45},
+      {3800, 35},
+      {3750, 26},
+      {3700, 18},
+      {3650, 12},
+      {3600, 8},
+      {3550, 4},
+      {3500, 0},
+  };
+
+  if (millivolts >= curve[0].millivolts) {
+    return curve[0].percent;
+  }
+
+  const size_t lastIndex = (sizeof(curve) / sizeof(curve[0])) - 1;
+  if (millivolts <= curve[lastIndex].millivolts) {
+    return curve[lastIndex].percent;
+  }
+
+  for (size_t i = 0; i < lastIndex; i++) {
+    const BatteryPoint &upper = curve[i];
+    const BatteryPoint &lower = curve[i + 1];
+
+    if (millivolts > lower.millivolts) {
+      const uint16_t spanMv = upper.millivolts - lower.millivolts;
+      const uint8_t spanPercent = upper.percent - lower.percent;
+      const uint16_t offsetMv = millivolts - lower.millivolts;
+      return lower.percent + static_cast<uint8_t>((offsetMv * spanPercent) / spanMv);
+    }
+  }
+
+  return 0;
+}
+
+void updateBatteryLevel(bool forceNotify = false) {
+  uint16_t newMillivolts = readBatteryMillivolts();
+  uint8_t measuredLevel = batteryPercentFromMillivolts(newMillivolts);
+  uint8_t previousLevel = batteryLevel;
+
+  batteryMillivolts = newMillivolts;
+  if (!batteryInitialized) {
+    batteryLevel = measuredLevel;
+    batteryInitialized = true;
+  } else {
+    int delta = static_cast<int>(measuredLevel) - static_cast<int>(batteryLevel);
+    if (delta < 0) {
+      delta = -delta;
+    }
+
+    if (delta >= BATTERY_PERCENT_HYSTERESIS) {
+      batteryLevel = measuredLevel;
+    }
+  }
+
+  batteryService.write(batteryLevel);
+  if (forceNotify || batteryLevel != previousLevel) {
+    batteryService.notify(batteryLevel);
+  }
+}
+
+DeviceConfig defaultConfig() {
+  DeviceConfig cfg;
+  cfg.version = CONFIG_VERSION;
+  cfg.singleTap = {ACTION_TYPE_HOTKEY, 0x16, MODIFIER_ALT};
+  cfg.doubleTap = {ACTION_TYPE_HOTKEY, 0x29, 0};
+  cfg.longPress = {ACTION_TYPE_HOTKEY, 0x28, MODIFIER_CTRL | MODIFIER_GUI};
+  cfg.crc = 0;
+  return cfg;
+}
+
+void applyConfig(const DeviceConfig &cfg) {
+  config = cfg;
+}
+
+bool writeConfigToStorage(const DeviceConfig &cfg) {
+  if (!storageReady) {
+    return false;
+  }
+
+  if (InternalFS.exists(CONFIG_FILE_PATH)) {
+    InternalFS.remove(CONFIG_FILE_PATH);
+  }
+
+  File file(CONFIG_FILE_PATH, FILE_O_WRITE, InternalFS);
+  if (!file) {
+    return false;
+  }
+
+  size_t written = file.write(reinterpret_cast<const uint8_t *>(&cfg), sizeof(DeviceConfig));
+  file.close();
+  return written == sizeof(DeviceConfig);
+}
+
+bool readConfigFromStorage(DeviceConfig &cfg) {
+  if (!storageReady) {
+    return false;
+  }
+
+  File file(CONFIG_FILE_PATH, FILE_O_READ, InternalFS);
+  if (!file || file.size() != sizeof(DeviceConfig)) {
+    file.close();
+    return false;
+  }
+
+  int readBytes = file.read(&cfg, sizeof(DeviceConfig));
+  file.close();
+  return readBytes == sizeof(DeviceConfig);
+}
+
+void persistConfig(DeviceConfig &cfg) {
+  cfg.version = CONFIG_VERSION;
+  cfg.crc = computeConfigCrc(cfg);
+  writeConfigToStorage(cfg);
+  applyConfig(cfg);
+}
+
+void loadConfig() {
+  DeviceConfig stored;
+  if (readConfigFromStorage(stored) && isConfigValid(stored, CONFIG_VERSION)) {
+    applyConfig(stored);
+    return;
+  }
+
+  stored = defaultConfig();
+  persistConfig(stored);
+}
+
+void resetConfig() {
+  DeviceConfig cfg = defaultConfig();
+  persistConfig(cfg);
+}
+
+void sendConfigFrame() {
+  sendFrame(Serial, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
+}
+
+uint8_t toKeyboardModifiers(uint8_t modifiers) {
+  uint8_t result = 0;
+
+  if (modifiers & MODIFIER_CTRL) result |= KEYBOARD_MODIFIER_LEFTCTRL;
+  if (modifiers & MODIFIER_SHIFT) result |= KEYBOARD_MODIFIER_LEFTSHIFT;
+  if (modifiers & MODIFIER_ALT) result |= KEYBOARD_MODIFIER_LEFTALT;
+  if (modifiers & MODIFIER_GUI) result |= KEYBOARD_MODIFIER_LEFTGUI;
+
+  return result;
+}
+
+bool isUsbHidActive() {
+  if (FORCE_BLE_HID_ONLY) {
+    return false;
+  }
+  return usbInitialized && usbVbusActive && TinyUSBDevice.mounted() && usbHid.ready();
+}
+
+bool isRawVbusPresent() {
+#if NRF_POWER_HAS_USBREG
+  return nrf_power_usbregstatus_vbusdet_get(NRF_POWER) &&
+         nrf_power_usbregstatus_outrdy_get(NRF_POWER);
+#else
+  return TinyUSBDevice.mounted();
+#endif
+}
+
+bool isVbusPresent() {
+  return usbVbusActive;
+}
+
+bool hasActiveUsbSession() {
+  return usbInitialized && usbVbusActive && TinyUSBDevice.mounted();
+}
+
+bool sendUsbKeyboardAction(uint8_t keycode, uint8_t modifiers) {
+  if (!isUsbHidActive()) {
+    return false;
+  }
+
+  if (TinyUSBDevice.suspended()) {
+    TinyUSBDevice.remoteWakeup();
+    delay(4);
+  }
+
+  uint8_t keycodes[6] = {keycode, 0, 0, 0, 0, 0};
+  uint8_t keyboardModifiers = toKeyboardModifiers(modifiers);
+  if (!usbHid.keyboardReport(USB_REPORT_ID_KEYBOARD, keyboardModifiers, keycodes)) {
+    return false;
+  }
+
+  delay(REPORT_DELAY_MS);
+  usbHid.keyboardRelease(USB_REPORT_ID_KEYBOARD);
+  return true;
+}
+
+bool sendBleKeyboardAction(uint8_t keycode, uint8_t modifiers) {
+  bool sent = false;
+  bool sawConnection = false;
+  uint8_t keycodes[6] = {keycode, 0, 0, 0, 0, 0};
+  uint8_t keyboardModifiers = toKeyboardModifiers(modifiers);
+
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected()) {
+      continue;
+    }
+
+    sawConnection = true;
+
+    if (!connection->secured()) {
+      connection->requestPairing();
+      continue;
+    }
+
+    if (!hid.keyboardReport(connHandle, keyboardModifiers, keycodes)) {
+      if (shouldLogSerial()) {
+        Serial.print("[ble-tx] keyboardReport=false handle=");
+        Serial.println(connHandle);
+      }
+      continue;
+    }
+
+    delay(REPORT_DELAY_MS);
+    hid.keyRelease(connHandle);
+    bleHidReady = true;
+    sent = true;
+  }
+
+  if (!sawConnection && shouldLogSerial()) {
+    Serial.println("[ble-tx] no active connection");
+  }
+
+  return sent;
+}
+
+bool sendConsumerAction(uint16_t usageCode) {
+  if (isUsbHidActive()) {
+    if (TinyUSBDevice.suspended()) {
+      TinyUSBDevice.remoteWakeup();
+      delay(4);
+    }
+
+    if (!usbHid.sendReport16(USB_REPORT_ID_CONSUMER_CONTROL, usageCode)) {
+      return false;
+    }
+
+    delay(REPORT_DELAY_MS);
+    usbHid.sendReport16(USB_REPORT_ID_CONSUMER_CONTROL, 0);
+    return true;
+  }
+
+  bool sent = false;
+
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected()) {
+      continue;
+    }
+
+    if (!connection->secured()) {
+      connection->requestPairing();
+      continue;
+    }
+
+    if (!hid.consumerKeyPress(connHandle, usageCode)) {
+      continue;
+    }
+
+    delay(REPORT_DELAY_MS);
+    hid.consumerKeyRelease(connHandle);
+    bleHidReady = true;
+    sent = true;
+  }
+
+  return sent;
+}
+
+bool sendGestureAction(const GestureAction &action) {
+  if (action.type == ACTION_TYPE_HOTKEY) {
+    if (isUsbHidActive()) {
+      return sendUsbKeyboardAction(static_cast<uint8_t>(action.code), action.modifiers);
+    }
+
+    return sendBleKeyboardAction(static_cast<uint8_t>(action.code), action.modifiers);
+  }
+
+  if (action.type == ACTION_TYPE_CONSUMER) {
+    return sendConsumerAction(action.code);
+  }
+
+  return false;
+}
+
+GestureAction actionForGesture(uint8_t gestureCode) {
+  GestureAction action = config.longPress;
+
+  if (gestureCode == GESTURE_SINGLE_TAP) {
+    action = config.singleTap;
+  } else if (gestureCode == GESTURE_DOUBLE_TAP) {
+    action = config.doubleTap;
+  }
+
+  return action;
+}
+
+void sendAction(uint8_t gestureCode) {
+  uint32_t now = millis();
+  GestureAction action = actionForGesture(gestureCode);
+
+  bool sent = sendGestureAction(action);
+  if (ENABLE_SERIAL_DEBUG) {
+    Serial.print("gesture=");
+    Serial.print(gestureCode);
+    Serial.print(" sent=");
+    Serial.println(sent ? "yes" : "no");
+  }
+
+  if (sent) {
+    pendingGestureCode = 0;
+    pendingWakeGesture = false;
+  } else if (!isUsbHidActive()) {
+    queuePendingGesture(gestureCode, now);
+  }
+}
+
+bool hasActiveBleConnection();
+bool hasSecuredBleConnection();
+bool hasBleReadyForAction(const GestureAction &action);
+bool refreshBleHidReady(uint32_t now);
+GestureAction actionForGesture(uint8_t gestureCode);
+void exitSleep();
+
+void flushPendingGesture(uint32_t now) {
+  if (pendingGestureCode == 0) {
+    return;
+  }
+  if (now - pendingGestureAt >= PENDING_GESTURE_MAX_AGE_MS) {
+    pendingGestureCode = 0;
+    pendingWakeGesture = false;
+    return;
+  }
+  if (now - lastPendingGestureRetryAt < PENDING_GESTURE_RETRY_INTERVAL_MS) {
+    return;
+  }
+  GestureAction action = actionForGesture(pendingGestureCode);
+  if (pendingWakeGesture) {
+    if (!hasBleReadyForAction(action)) {
+      pendingBleReadyStableCount = 0;
+      return;
+    }
+    if (pendingBleReadyStableCount < BLE_HID_READY_STABLE_COUNT) {
+      pendingBleReadyStableCount++;
+      return;
+    }
+  } else if (!hasSecuredBleConnection()) {
+    return;
+  }
+  uint8_t code = pendingGestureCode;
+  pendingGestureCode = 0;
+  pendingWakeGesture = false;
+  pendingBleReadyStableCount = 0;
+  sendAction(code);
+}
+
+void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
+  if (payloadLen != sizeof(DeviceConfig)) {
+    sendError(Serial, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  DeviceConfig nextConfig;
+  memcpy(&nextConfig, payload, sizeof(DeviceConfig));
+
+  if (!isConfigValid(nextConfig, CONFIG_VERSION)) {
+    sendError(Serial, STATUS_BAD_CRC);
+    return;
+  }
+
+  if (!isActionValid(nextConfig.singleTap) ||
+      !isActionValid(nextConfig.doubleTap) ||
+      !isActionValid(nextConfig.longPress)) {
+    sendError(Serial, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  persistConfig(nextConfig);
+  sendStatusFrame(Serial, CMD_ACK, STATUS_OK);
+}
+
+void handleSerial() {
+  while (Serial.available() >= 2) {
+    if (Serial.read() != FRAME_MAGIC_1) {
+      continue;
+    }
+
+    if (Serial.read() != FRAME_MAGIC_2) {
+      continue;
+    }
+
+    uint8_t header[3];
+    if (!readExact(Serial, header, sizeof(header))) {
+      sendError(Serial, STATUS_BAD_PAYLOAD);
+      return;
+    }
+
+    uint8_t version = header[0];
+    uint8_t cmd = header[1];
+    uint8_t payloadLen = header[2];
+    uint8_t payload[sizeof(DeviceConfig)] = {0};
+
+    if (payloadLen > sizeof(payload)) {
+      sendError(Serial, STATUS_BAD_PAYLOAD);
+      return;
+    }
+
+    if (!readExact(Serial, payload, payloadLen)) {
+      sendError(Serial, STATUS_BAD_PAYLOAD);
+      return;
+    }
+
+    uint8_t receivedCrc = 0;
+    if (!readExact(Serial, &receivedCrc, 1)) {
+      sendError(Serial, STATUS_BAD_PAYLOAD);
+      return;
+    }
+
+    uint8_t computedCrc = 0;
+    computedCrc = crc8Update(computedCrc, version);
+    computedCrc = crc8Update(computedCrc, cmd);
+    computedCrc = crc8Update(computedCrc, payloadLen);
+    for (uint8_t i = 0; i < payloadLen; i++) {
+      computedCrc = crc8Update(computedCrc, payload[i]);
+    }
+
+    if (version != PROTOCOL_VERSION) {
+      sendError(Serial, STATUS_BAD_COMMAND);
+      continue;
+    }
+
+    if (receivedCrc != computedCrc) {
+      sendError(Serial, STATUS_BAD_CRC);
+      continue;
+    }
+
+    if (cmd == CMD_GET_CONFIG) {
+      markActivity();
+      sendConfigFrame();
+    } else if (cmd == CMD_SET_CONFIG) {
+      markActivity();
+      handleSetConfig(payload, payloadLen);
+    } else if (cmd == CMD_RESET_CONFIG) {
+      markActivity();
+      resetConfig();
+      sendConfigFrame();
+    } else if (cmd == CMD_PING) {
+      markActivity();
+      sendPingFrame(Serial, DEVICE_TYPE_MAGIC_BUTTON, DEVICE_NAME);
+    } else {
+      sendError(Serial, STATUS_BAD_COMMAND);
+    }
+  }
+}
+
+bool hasActiveBleConnection() {
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (connection && connection->connected()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool hasSecuredBleConnection() {
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (connection && connection->connected() && connection->secured()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool hasBleReadyForAction(const GestureAction &action) {
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected() || !connection->secured()) {
+      continue;
+    }
+
+    if (action.type == ACTION_TYPE_HOTKEY &&
+        keyboardNotifySubscribedThisConnection &&
+        hid.keyboardNotifyEnabled(connHandle)) {
+      return true;
+    }
+    if (action.type == ACTION_TYPE_CONSUMER &&
+        consumerNotifySubscribedThisConnection &&
+        hid.consumerNotifyEnabled(connHandle)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool isBleHidReady() {
+  if (!bleHidReady) {
+    return false;
+  }
+
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (connection && connection->connected() && connection->secured()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool refreshBleHidReady(uint32_t now) {
+  if (isBleHidReady()) {
+    return true;
+  }
+  bleHidReady = false;
+
+  if (now - lastBleHidProbeAt < BLE_HID_PROBE_INTERVAL_MS) {
+    return false;
+  }
+  lastBleHidProbeAt = now;
+
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected()) {
+      continue;
+    }
+    if (!connection->secured()) {
+      connection->requestPairing();
+      continue;
+    }
+    if (hid.keyRelease(connHandle)) {
+      bleHidReady = true;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void disconnectAllBleConnections() {
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected()) {
+      continue;
+    }
+
+    connection->disconnect();
+  }
+}
+
+void startAdvertising();
+
+void emitHeartbeat(uint32_t now) {
+  if (!shouldLogSerial()) {
+    return;
+  }
+
+  if (now - lastHeartbeatAt < HEARTBEAT_INTERVAL_MS) {
+    return;
+  }
+  lastHeartbeatAt = now;
+
+  uint8_t connectedCount = 0;
+  uint8_t securedCount = 0;
+  for (uint16_t h = 0; h < BLE_MAX_CONNECTION; h++) {
+    BLEConnection *c = Bluefruit.Connection(h);
+    if (!c || !c->connected()) {
+      continue;
+    }
+    connectedCount++;
+    if (c->secured()) {
+      securedCount++;
+    }
+  }
+
+  Serial.print("[hb] up=");
+  Serial.print(now / 1000);
+  Serial.print("s sleep=");
+  Serial.print(sleeping ? 1 : 0);
+  Serial.print(" conn=");
+  Serial.print(connectedCount);
+  Serial.print(" sec=");
+  Serial.print(securedCount);
+  Serial.print(" btn=");
+  Serial.print(buttonState == LOW ? 'L' : 'H');
+  Serial.print('/');
+  Serial.print(lastRawButtonState == LOW ? 'L' : 'H');
+  Serial.print(" pend=");
+  Serial.print(pendingGestureCode);
+  Serial.print(" wait2x=");
+  Serial.print(waitForDoubleTap ? 1 : 0);
+  Serial.print(" idle=");
+  Serial.print(now - lastActivityAt);
+  Serial.println("ms");
+}
+
+void clearBondsAndRestartAdvertising() {
+  if (shouldLogSerial()) {
+    Serial.println("[ble] clearing bonds, restarting advertising");
+  }
+  disconnectAllBleConnections();
+  delay(200);
+  Bluefruit.Periph.clearBonds();
+  startAdvertising();
+}
+
+void updateStatusLed(uint32_t now) {
+  (void) now;
+  setStatusLed(!hasBleReadyForAction(config.singleTap));
+}
+
+void updateButton(uint32_t now) {
+  int rawState = readButtonState();
+
+  if (sleeping && rawState == LOW) {
+    exitSleep();
+  }
+
+  if (rawState != lastRawButtonState) {
+    lastRawButtonState = rawState;
+    lastDebounceAt = now;
+  }
+
+  if (now - lastDebounceAt < DEBOUNCE_TIME) {
+    return;
+  }
+
+  if (rawState == buttonState) {
+    if (buttonState == LOW && !longPressSent && now - pressStartedAt >= LONG_PRESS_TIME) {
+      sendAction(GESTURE_LONG_PRESS);
+      longPressSent = true;
+      waitForDoubleTap = false;
+    }
+
+    if (buttonState == LOW && !bondsClearedThisPress && now - pressStartedAt >= CLEAR_BONDS_HOLD_MS) {
+      bondsClearedThisPress = true;
+      clearBondsAndRestartAdvertising();
+    }
+
+    if (waitForDoubleTap && buttonState == HIGH && now - lastReleaseAt >= DOUBLE_TAP_TIME) {
+      sendAction(GESTURE_SINGLE_TAP);
+      waitForDoubleTap = false;
+    }
+
+    return;
+  }
+
+  buttonState = rawState;
+
+  if (buttonState == LOW) {
+    pressStartedAt = now;
+    longPressSent = false;
+    bondsClearedThisPress = false;
+    markActivity(now);
+    sendButtonEvent(Serial, BUTTON_PRESSED);
+    return;
+  }
+
+  markActivity(now);
+  sendButtonEvent(Serial, BUTTON_RELEASED);
+
+  uint32_t pressDuration = now - pressStartedAt;
+  if (longPressSent || pressDuration <= DEBOUNCE_TIME) {
+    return;
+  }
+
+  if (waitForDoubleTap && now - lastReleaseAt <= DOUBLE_TAP_TIME) {
+    sendAction(GESTURE_DOUBLE_TAP);
+    waitForDoubleTap = false;
+    return;
+  }
+
+  waitForDoubleTap = true;
+  lastReleaseAt = now;
+}
+
+void startAdvertising() {
+  Bluefruit.Advertising.stop();
+  Bluefruit.Advertising.clearData();
+  Bluefruit.ScanResponse.clearData();
+
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addAppearance(BLE_APPEARANCE_HID_KEYBOARD);
+  Bluefruit.Advertising.addService(hid);
+  Bluefruit.Advertising.addService(batteryService);
+  Bluefruit.ScanResponse.addName();
+
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(BLE_ADVERTISING_INTERVAL_MIN, BLE_ADVERTISING_INTERVAL_MAX);
+  Bluefruit.Advertising.setFastTimeout(BLE_ADVERTISING_FAST_TIMEOUT_SEC);
+  Bluefruit.Advertising.start(0);
+}
+
+void printConnParams(BLEConnection *connection, const char *tag) {
+  if (!shouldLogSerial()) {
+    return;
+  }
+
+  if (!connection) {
+    return;
+  }
+  uint16_t interval = connection->getConnectionInterval();
+  uint16_t latency = connection->getSlaveLatency();
+  uint16_t timeout = connection->getSupervisionTimeout();
+  Serial.print("[connparams ");
+  Serial.print(tag);
+  Serial.print("] interval=");
+  Serial.print(interval * 1.25f, 2);
+  Serial.print("ms latency=");
+  Serial.print(latency);
+  Serial.print(" timeout=");
+  Serial.print(timeout * 10);
+  Serial.println("ms");
+}
+
+void connectCallback(uint16_t connHandle) {
+  BLEConnection *connection = Bluefruit.Connection(connHandle);
+  char peerName[32] = {0};
+
+  if (connection) {
+    connection->getPeerName(peerName, sizeof(peerName));
+    connection->requestConnectionParameter(BLE_CONN_INTERVAL_MIN, BLE_CONN_SLAVE_LATENCY, BLE_CONN_SUPERVISION_TIMEOUT);
+    resetBleHidReadyState();
+    if (!connection->secured()) {
+      connection->requestPairing();
+    }
+  }
+
+  if (shouldLogSerial()) {
+    Serial.print("[ble] connect handle=");
+    Serial.print(connHandle);
+    Serial.print(" peer=");
+    Serial.println(peerName[0] ? peerName : "unknown");
+  }
+  printConnParams(connection, "connect");
+  markActivity();
+  batteryService.notify(connHandle, batteryLevel);
+  if (pendingGestureCode != 0) {
+    lastPendingGestureRetryAt = 0;
+  }
+}
+
+void disconnectCallback(uint16_t connHandle, uint8_t reason) {
+  resetBleHidReadyState();
+  if (shouldLogSerial()) {
+    Serial.print("[ble] disconnect handle=");
+    Serial.print(connHandle);
+    Serial.print(" reason=0x");
+    Serial.println(reason, HEX);
+  }
+  markActivity();
+}
+
+void pairCompleteCallback(uint16_t connHandle, uint8_t authStatus) {
+  if (shouldLogSerial()) {
+    Serial.print("[ble] pair handle=");
+    Serial.print(connHandle);
+    Serial.print(" status=0x");
+    Serial.println(authStatus, HEX);
+  }
+}
+
+void securedCallback(uint16_t connHandle) {
+  BLEConnection *connection = Bluefruit.Connection(connHandle);
+  char peerName[32] = {0};
+
+  if (connection) {
+    connection->getPeerName(peerName, sizeof(peerName));
+  }
+
+  if (shouldLogSerial()) {
+    Serial.print("[ble] secured handle=");
+    Serial.print(connHandle);
+    Serial.print(" peer=");
+    Serial.println(peerName[0] ? peerName : "unknown");
+  }
+  printConnParams(connection, "secured");
+  markActivity();
+  resetBleHidReadyState();
+  if (pendingGestureCode != 0) {
+    lastPendingGestureRetryAt = 0;
+  }
+}
+
+void setupBle() {
+  Bluefruit.autoConnLed(false);
+  Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
+  Bluefruit.begin();
+  sd_power_dcdc_mode_set(NRF_POWER_DCDC_ENABLE);
+  Bluefruit.setTxPower(BLE_TX_POWER_DBM);
+  Bluefruit.setName(DEVICE_NAME);
+
+  Bluefruit.Periph.setConnectCallback(connectCallback);
+  Bluefruit.Periph.setDisconnectCallback(disconnectCallback);
+
+  Bluefruit.Security.setPairCompleteCallback(pairCompleteCallback);
+  Bluefruit.Security.setSecuredCallback(securedCallback);
+
+  deviceInfo.setManufacturer(MANUFACTURER_NAME);
+  deviceInfo.setModel(MODEL_NAME);
+  deviceInfo.begin();
+
+  batteryService.begin();
+  updateBatteryLevel();
+  hid.begin();
+  hid.setInputReportCccdCallback(hidInputCccdCallback);
+  Bluefruit.Periph.setConnInterval(BLE_CONN_INTERVAL_MIN, BLE_CONN_INTERVAL_MAX);
+  Bluefruit.Periph.setConnSlaveLatency(BLE_CONN_SLAVE_LATENCY);
+  Bluefruit.Periph.setConnSupervisionTimeout(BLE_CONN_SUPERVISION_TIMEOUT);
+  startAdvertising();
+}
+
+void setupUsbHid() {
+  if (usbInitialized) {
+    TinyUSBDevice.attach();
+    return;
+  }
+
+  if (!TinyUSBDevice.isInitialized()) {
+    TinyUSBDevice.begin(0);
+  }
+
+  usbHid.setPollInterval(2);
+  usbHid.setReportDescriptor(USB_HID_REPORT_DESCRIPTOR, sizeof(USB_HID_REPORT_DESCRIPTOR));
+  usbHid.setStringDescriptor("Super Magic Button HID");
+  usbHid.begin();
+
+  if (TinyUSBDevice.mounted()) {
+    TinyUSBDevice.detach();
+    delay(10);
+    TinyUSBDevice.attach();
+  }
+
+  usbInitialized = true;
+}
+
+void setupStorage() {
+  storageReady = InternalFS.begin();
+  if (!storageReady) {
+    debugPrintln("internal fs unavailable, using volatile config");
+  }
+}
+
+void updateUsbState() {
+  bool vbusPresent = isRawVbusPresent();
+
+  if (vbusPresent && !lastVbusPresent) {
+    if (!usbInitialized) {
+      NVIC_SystemReset();
+    }
+
+    if (sleeping) {
+      exitSleep();
+    }
+
+    Serial.begin(SERIAL_BAUD);
+    delay(50);
+    setupUsbHid();
+    usbVbusActive = true;
+    markActivity();
+  } else if (!vbusPresent && lastVbusPresent && usbVbusActive) {
+    TinyUSBDevice.detach();
+    Serial.end();
+    usbVbusActive = false;
+    markActivity();
+  }
+
+  lastVbusPresent = vbusPresent;
+}
+
+void armButtonWakeSense() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  nrf_gpio_cfg_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP);
+
+  NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] =
+      ((uint32_t) GPIOTE_CONFIG_MODE_Event << GPIOTE_CONFIG_MODE_Pos) |
+      ((uint32_t) BUTTON_PIN_NUMBER << GPIOTE_CONFIG_PSEL_Pos) |
+      ((uint32_t) BUTTON_PIN_PORT << GPIOTE_CONFIG_PORT_Pos) |
+      ((uint32_t) GPIOTE_CONFIG_POLARITY_HiToLo << GPIOTE_CONFIG_POLARITY_Pos);
+  NRF_GPIOTE->EVENTS_IN[WAKE_GPIOTE_CHANNEL] = 0;
+  NRF_GPIOTE->INTENSET = (1UL << WAKE_GPIOTE_CHANNEL);
+  NVIC_EnableIRQ(GPIOTE_IRQn);
+#endif
+}
+
+void disarmButtonWakeSense() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  NRF_GPIOTE->INTENCLR = (1UL << WAKE_GPIOTE_CHANNEL);
+  NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] = 0;
+  NRF_GPIOTE->EVENTS_IN[WAKE_GPIOTE_CHANNEL] = 0;
+#endif
+}
+
+void disableAllGpioSense() {
+  for (uint8_t pin = 0; pin < 32; pin++) {
+    NRF_P0->PIN_CNF[pin] =
+        (NRF_P0->PIN_CNF[pin] & ~GPIO_PIN_CNF_SENSE_Msk) |
+        (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+  }
+#if defined(NRF_P1)
+  for (uint8_t pin = 0; pin < 32; pin++) {
+    NRF_P1->PIN_CNF[pin] =
+        (NRF_P1->PIN_CNF[pin] & ~GPIO_PIN_CNF_SENSE_Msk) |
+        (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+  }
+#endif
+}
+
+bool prepareSystemOffButtonWake() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  if (readButtonState() == LOW) {
+    return false;
+  }
+
+  disableAllGpioSense();
+  nrf_gpio_cfg_sense_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
+  NRF_P0->LATCH = 0xFFFFFFFF;
+#if defined(NRF_P1)
+  NRF_P1->LATCH = 0xFFFFFFFF;
+#endif
+  NRF_GPIOTE->EVENTS_PORT = 0;
+  delay(100);
+
+#if BUTTON_PIN_PORT == 0
+  if (readButtonState() == LOW || (NRF_P0->LATCH & (1UL << BUTTON_PIN_NUMBER)) != 0) {
+    setupButtonInput();
+    NRF_P0->LATCH = 0xFFFFFFFF;
+    return false;
+  }
+#endif
+#endif
+
+  return true;
+}
+
+void enterSleep() {
+  if (sleeping) {
+    return;
+  }
+  sleeping = true;
+
+#if defined(LED_BUILTIN)
+  digitalWrite(LED_BUILTIN, LOW);
+#endif
+  setStatusLed(false);
+
+  Bluefruit.Advertising.restartOnDisconnect(false);
+  Bluefruit.Advertising.stop();
+  armButtonWakeSense();
+}
+
+void exitSleep() {
+  if (!sleeping) {
+    return;
+  }
+  sleeping = false;
+  disarmButtonWakeSense();
+
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  if (!hasActiveBleConnection()) {
+    startAdvertising();
+  }
+  uint32_t now = millis();
+  queuePendingGesture(GESTURE_SINGLE_TAP, now, true);
+  markActivity();
+}
+
+void enterSystemOff() {
+#if defined(USE_RAW_BUTTON_GPIO)
+  if (!prepareSystemOffButtonWake()) {
+    markActivity();
+    return;
+  }
+#endif
+
+#if defined(LED_BUILTIN)
+  digitalWrite(LED_BUILTIN, LOW);
+#endif
+  setStatusLed(false);
+  disarmButtonWakeSense();
+  holdButtonGroundLow();
+  disconnectAllBleConnections();
+  delay(30);
+  Bluefruit.Advertising.stop();
+  delay(10);
+
+  uint8_t softDeviceEnabled = 0;
+  (void) sd_softdevice_is_enabled(&softDeviceEnabled);
+
+#if defined(NRF_SAADC)
+  NRF_SAADC->ENABLE = 0;
+#endif
+#if defined(NRF_UARTE0)
+  NRF_UARTE0->ENABLE = 0;
+#endif
+#if defined(NRF_UARTE1)
+  NRF_UARTE1->ENABLE = 0;
+#endif
+#if defined(NRF_PWM0)
+  NRF_PWM0->ENABLE = 0;
+#endif
+#if defined(NRF_PWM1)
+  NRF_PWM1->ENABLE = 0;
+#endif
+#if defined(NRF_PWM2)
+  NRF_PWM2->ENABLE = 0;
+#endif
+#if defined(NRF_PWM3)
+  NRF_PWM3->ENABLE = 0;
+#endif
+
+#if defined(USE_RAW_BUTTON_GPIO)
+  nrf_gpio_cfg_default(STATUS_LED_GPIO);
+  holdButtonGroundLow();
+
+  if (softDeviceEnabled) {
+    sd_power_system_off();
+  } else {
+    NRF_POWER->SYSTEMOFF = 1;
+  }
+  __DSB();
+  while (true) {
+    __WFE();
+  }
+#else
+  systemOff(BUTTON_PIN, LOW);
+#endif
+}
+
+bool shouldEnterSleep(uint32_t now) {
+  if (hasActiveUsbSession()) {
+    return false;
+  }
+
+  if (buttonState == LOW || lastRawButtonState == LOW) {
+    return false;
+  }
+
+  if (waitForDoubleTap) {
+    return false;
+  }
+
+  if (pendingGestureCode != 0) {
+    return false;
+  }
+
+  return now - lastActivityAt >= IDLE_SLEEP_TIMEOUT_MS;
+}
+
+uint8_t sleepBlockReason() {
+  if (hasActiveUsbSession()) {
+    return 4;
+  }
+
+  if (buttonState == LOW || lastRawButtonState == LOW) {
+    return 6;
+  }
+
+  if (waitForDoubleTap) {
+    return 7;
+  }
+
+  if (pendingGestureCode != 0) {
+    return 8;
+  }
+
+  return 0;
+}
+
+void idleSleep(uint32_t now) {
+  if (IDLE_USES_SYSTEM_OFF && shouldEnterSleep(now)) {
+    enterSystemOff();
+    return;
+  }
+
+  if (sleeping &&
+      !hasActiveUsbSession() &&
+      pendingGestureCode == 0 &&
+      now - lastActivityAt >= DEEP_SLEEP_TIMEOUT_MS) {
+    enterSystemOff();
+    return;
+  }
+
+  if (shouldEnterSleep(now)) {
+    enterSleep();
+  }
+
+  if (now - lastActivityAt >= IDLE_SLEEP_TIMEOUT_MS) {
+    uint8_t reason = sleepBlockReason();
+    if (ENABLE_SERIAL_DEBUG && reason != 0 && now - lastSleepDebugAt >= SLEEP_DEBUG_REPEAT_MS) {
+      lastSleepDebugAt = now;
+      pulseDebugLed(reason, DEBUG_REASON_PULSE_MS, DEBUG_REASON_GAP_MS);
+    }
+  }
+
+  if (Serial.available() > 0) {
+    return;
+  }
+
+  if (buttonState == LOW || lastRawButtonState == LOW || waitForDoubleTap) {
+    delay(ACTIVE_POLL_DELAY_MS);
+    return;
+  }
+
+  if (!hasActiveBleConnection()) {
+    delay(ACTIVE_POLL_DELAY_MS);
+    return;
+  }
+
+  waitForEvent();
+}
+
+}  // namespace
+
+void disableNfcPinsIfNeeded() {
+  if ((NRF_UICR->NFCPINS & UICR_NFCPINS_PROTECT_Msk) ==
+      (UICR_NFCPINS_PROTECT_NFC << UICR_NFCPINS_PROTECT_Pos)) {
+    NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen;
+    while (NRF_NVMC->READY == NVMC_READY_READY_Busy) {}
+    NRF_UICR->NFCPINS &= ~UICR_NFCPINS_PROTECT_Msk;
+    while (NRF_NVMC->READY == NVMC_READY_READY_Busy) {}
+    NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren;
+    NVIC_SystemReset();
+  }
+}
+
+void setup() {
+  disableNfcPinsIfNeeded();
+#if defined(LED_BUILTIN)
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+#endif
+  setupStatusLed();
+
+  const uint32_t resetReason = NRF_POWER->RESETREAS;
+  const uint32_t p0Latch = NRF_P0->LATCH;
+  NRF_POWER->RESETREAS = resetReason;
+  wokeFromSystemOff = (resetReason & POWER_RESETREAS_OFF_Msk) != 0;
+#if defined(USE_RAW_BUTTON_GPIO) && BUTTON_PIN_PORT == 0
+  wokeFromButtonLatch = (p0Latch & (1UL << BUTTON_PIN_NUMBER)) != 0;
+  NRF_P0->LATCH = 0xFFFFFFFF;
+#else
+  wokeFromButtonLatch = false;
+#endif
+  if (ENABLE_SERIAL_DEBUG) {
+    pulseDebugLed(1);
+  }
+
+  setupButtonInput();
+  setupButtonGround();
+
+  setupStorage();
+  loadConfig();
+  lastVbusPresent = isRawVbusPresent();
+  if (lastVbusPresent) {
+    Serial.begin(SERIAL_BAUD);
+    delay(50);
+    setupUsbHid();
+    usbVbusActive = true;
+  }
+  setupBle();
+  markActivity();
+  if (shouldQueueWakeGesture()) {
+    uint32_t now = millis();
+    queuePendingGesture(GESTURE_SINGLE_TAP, now, true);
+  }
+
+  if (ENABLE_SERIAL_DEBUG || usbVbusActive) {
+    Serial.println();
+    Serial.println("=== Magic Button NRF boot ===");
+  }
+
+  if (ENABLE_SERIAL_DEBUG) {
+    Serial.println();
+    Serial.println("Magic Button NRF");
+    Serial.print("advertising as: ");
+    Serial.println(DEVICE_NAME);
+#if defined(USE_RAW_BUTTON_GPIO)
+    Serial.print("button gpio: P");
+    Serial.print(BUTTON_PIN_PORT);
+    Serial.print(".");
+    Serial.println(BUTTON_PIN_NUMBER);
+#endif
+#ifdef SAADC_CH_PSELP_PSELP_VDDHDIV5
+    Serial.println("battery source: VDDH/5");
+#elif defined(SAADC_CH_PSELP_PSELP_VDD)
+    Serial.println("battery source: VDD");
+#else
+    Serial.println("battery source: unavailable");
+#endif
+  }
+}
+
+void loop() {
+#ifdef TINYUSB_NEED_POLLING_TASK
+  if (usbInitialized && usbVbusActive) {
+    TinyUSBDevice.task();
+  }
+#endif
+
+  updateUsbState();
+
+  uint32_t now = millis();
+  handleSerial();
+  updateButton(now);
+  flushPendingGesture(now);
+  updateStatusLed(now);
+  emitHeartbeat(now);
+
+  if (now - lastBatteryUpdateAt >= BATTERY_UPDATE_INTERVAL_MS) {
+    lastBatteryUpdateAt = now;
+    updateBatteryLevel();
+  }
+
+  if (shouldLogSerial() && now - lastConnParamsCheckAt >= 5000) {
+    lastConnParamsCheckAt = now;
+    bool anyConnected = false;
+    for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+      BLEConnection *connection = Bluefruit.Connection(connHandle);
+      if (!connection || !connection->connected()) {
+        continue;
+      }
+      anyConnected = true;
+      printConnParams(connection, "poll");
+    }
+    if (!anyConnected) {
+      Serial.println("[connparams poll] no active BLE connection");
+    }
+  }
+
+  idleSleep(now);
+}
