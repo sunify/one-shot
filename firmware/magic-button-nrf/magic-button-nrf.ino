@@ -73,12 +73,9 @@ const uint16_t DEBUG_LED_PULSE_MS = 40;
 const uint16_t DEBUG_LED_GAP_MS = 70;
 const uint16_t DEBUG_REASON_PULSE_MS = 80;
 const uint16_t DEBUG_REASON_GAP_MS = 220;
-const uint16_t PENDING_DEBUG_PULSE_MS = 120;
-const uint16_t PENDING_DEBUG_GAP_MS = 120;
 const uint32_t SLEEP_DEBUG_REPEAT_MS = 2000;
 const uint32_t PENDING_GESTURE_MAX_AGE_MS = 120000;
 const uint32_t PENDING_GESTURE_RETRY_INTERVAL_MS = 200;
-const uint32_t BLE_HID_PROBE_INTERVAL_MS = 100;
 const uint8_t BLE_HID_READY_STABLE_COUNT = 5;
 const uint8_t WAKE_GPIOTE_CHANNEL = 7;
 
@@ -160,8 +157,6 @@ uint32_t lastActivityAt = 0;
 uint32_t lastSleepDebugAt = 0;
 uint32_t lastConnParamsCheckAt = 0;
 uint32_t lastBatteryUpdateAt = 0;
-uint16_t lastReportedConnInterval = 0;
-uint16_t lastReportedSlaveLatency = 0xFFFF;
 uint8_t pendingGestureCode = 0;
 uint32_t pendingGestureAt = 0;
 uint32_t lastPendingGestureRetryAt = 0;
@@ -171,10 +166,7 @@ bool sleeping = false;
 bool usbInitialized = false;
 bool usbVbusActive = false;
 bool lastVbusPresent = false;
-bool wokeFromSystemOff = false;
 bool wokeFromButtonLatch = false;
-bool bleHidReady = false;
-uint32_t lastBleHidProbeAt = 0;
 uint32_t lastHeartbeatAt = 0;
 bool keyboardNotifySubscribedThisConnection = false;
 bool consumerNotifySubscribedThisConnection = false;
@@ -223,18 +215,6 @@ void pulseDebugLed(uint8_t pulses, uint16_t pulseMs = DEBUG_LED_PULSE_MS, uint16
   }
 }
 
-void pulseStatusLed(uint8_t pulses, uint16_t pulseMs = PENDING_DEBUG_PULSE_MS, uint16_t gapMs = PENDING_DEBUG_GAP_MS) {
-  for (uint8_t i = 0; i < pulses; i++) {
-    setStatusLed(true);
-    delay(pulseMs);
-    setStatusLed(false);
-
-    if (i + 1 < pulses) {
-      delay(gapMs);
-    }
-  }
-}
-
 void debugPrintln(const char *message) {
   if (!ENABLE_SERIAL_DEBUG) {
     return;
@@ -260,8 +240,6 @@ bool shouldQueueWakeGesture() {
 }
 
 void resetBleHidReadyState() {
-  bleHidReady = false;
-  lastBleHidProbeAt = 0;
   pendingBleReadyStableCount = 0;
   keyboardNotifySubscribedThisConnection = false;
   consumerNotifySubscribedThisConnection = false;
@@ -591,7 +569,6 @@ bool sendBleKeyboardAction(uint8_t keycode, uint8_t modifiers) {
 
     delay(REPORT_DELAY_MS);
     hid.keyRelease(connHandle);
-    bleHidReady = true;
     sent = true;
   }
 
@@ -637,7 +614,6 @@ bool sendConsumerAction(uint16_t usageCode) {
 
     delay(REPORT_DELAY_MS);
     hid.consumerKeyRelease(connHandle);
-    bleHidReady = true;
     sent = true;
   }
 
@@ -695,7 +671,6 @@ void sendAction(uint8_t gestureCode) {
 bool hasActiveBleConnection();
 bool hasSecuredBleConnection();
 bool hasBleReadyForAction(const GestureAction &action);
-bool refreshBleHidReady(uint32_t now);
 GestureAction actionForGesture(uint8_t gestureCode);
 void exitSleep();
 
@@ -867,50 +842,6 @@ bool hasBleReadyForAction(const GestureAction &action) {
     if (action.type == ACTION_TYPE_CONSUMER &&
         consumerNotifySubscribedThisConnection &&
         hid.consumerNotifyEnabled(connHandle)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool isBleHidReady() {
-  if (!bleHidReady) {
-    return false;
-  }
-
-  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
-    BLEConnection *connection = Bluefruit.Connection(connHandle);
-    if (connection && connection->connected() && connection->secured()) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool refreshBleHidReady(uint32_t now) {
-  if (isBleHidReady()) {
-    return true;
-  }
-  bleHidReady = false;
-
-  if (now - lastBleHidProbeAt < BLE_HID_PROBE_INTERVAL_MS) {
-    return false;
-  }
-  lastBleHidProbeAt = now;
-
-  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
-    BLEConnection *connection = Bluefruit.Connection(connHandle);
-    if (!connection || !connection->connected()) {
-      continue;
-    }
-    if (!connection->secured()) {
-      connection->requestPairing();
-      continue;
-    }
-    if (hid.keyRelease(connHandle)) {
-      bleHidReady = true;
       return true;
     }
   }
@@ -1516,7 +1447,6 @@ void setup() {
   const uint32_t resetReason = NRF_POWER->RESETREAS;
   const uint32_t p0Latch = NRF_P0->LATCH;
   NRF_POWER->RESETREAS = resetReason;
-  wokeFromSystemOff = (resetReason & POWER_RESETREAS_OFF_Msk) != 0;
 #if defined(USE_RAW_BUTTON_GPIO) && BUTTON_PIN_PORT == 0
   wokeFromButtonLatch = (p0Latch & (1UL << BUTTON_PIN_NUMBER)) != 0;
   NRF_P0->LATCH = 0xFFFFFFFF;
