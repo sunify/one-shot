@@ -330,6 +330,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
         filters: [
           { usbVendorId: 0x2341 }, // Arduino
           { usbVendorId: 0x1B4F }, // SparkFun
+          { usbVendorId: 0x239A }, // Adafruit nRF52
           { usbVendorId: 0x1A86 }, // CH340
           { usbVendorId: 0x10C4 }, // CP2102
           { usbVendorId: 0x303A }, // Espressif

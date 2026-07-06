@@ -55,8 +55,13 @@ const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
+const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
 const int16_t BATTERY_CALIBRATION_OFFSET_MV = 0;
 const float VDDH_MV_PER_LSB = 3.66210938F;
+const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 31);
+const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput7;
+const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
+const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
 const bool IDLE_USES_SYSTEM_OFF = false;
 const uint16_t BLE_ADVERTISING_INTERVAL_MIN = 32;
 const uint16_t BLE_ADVERTISING_INTERVAL_MAX = 48;
@@ -65,7 +70,13 @@ const uint16_t BLE_CONN_INTERVAL_MIN = 9;
 const uint16_t BLE_CONN_INTERVAL_MAX = 12;
 const uint16_t BLE_CONN_SLAVE_LATENCY = 0;
 const uint16_t BLE_CONN_SUPERVISION_TIMEOUT = 400;
-const int8_t BLE_TX_POWER_DBM = 0;
+const int8_t BLE_TX_POWER_FAST_DBM = 0;
+const uint16_t BLE_IDLE_CONN_INTERVAL_MIN = 24;
+const uint16_t BLE_IDLE_CONN_INTERVAL_MAX = 40;
+const uint16_t BLE_IDLE_CONN_SLAVE_LATENCY = 4;
+const uint16_t BLE_IDLE_CONN_SUPERVISION_TIMEOUT = 400;
+const int8_t BLE_TX_POWER_IDLE_DBM = -8;
+const uint32_t BLE_IDLE_PARAMS_DELAY_MS = 15000;
 const uint32_t STATUS_LED_GPIO = NRF_GPIO_PIN_MAP(0, 22);
 const bool STATUS_LED_ACTIVE_LOW = false;
 const uint32_t DEBUG_LED_GPIO = STATUS_LED_GPIO;
@@ -157,6 +168,7 @@ uint32_t lastActivityAt = 0;
 uint32_t lastSleepDebugAt = 0;
 uint32_t lastConnParamsCheckAt = 0;
 uint32_t lastBatteryUpdateAt = 0;
+uint32_t bleSecuredAt = 0;
 uint8_t pendingGestureCode = 0;
 uint32_t pendingGestureAt = 0;
 uint32_t lastPendingGestureRetryAt = 0;
@@ -168,9 +180,11 @@ bool usbVbusActive = false;
 bool lastVbusPresent = false;
 bool wokeFromButtonLatch = false;
 uint32_t lastHeartbeatAt = 0;
+bool bleIdleParamsRequested = false;
 bool keyboardNotifySubscribedThisConnection = false;
 bool consumerNotifySubscribedThisConnection = false;
 bool batteryInitialized = false;
+bool bleReadySeen = false;
 uint8_t batteryLevel = 100;
 uint16_t batteryMillivolts = 4200;
 
@@ -245,6 +259,25 @@ void resetBleHidReadyState() {
   consumerNotifySubscribedThisConnection = false;
 }
 
+void ensureBleFastProfile(uint32_t now = millis()) {
+  Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected() || !connection->secured()) {
+      continue;
+    }
+
+    connection->requestConnectionParameter(
+        BLE_CONN_INTERVAL_MIN,
+        BLE_CONN_SLAVE_LATENCY,
+        BLE_CONN_SUPERVISION_TIMEOUT);
+  }
+  bleIdleParamsRequested = false;
+  if (bleSecuredAt != 0) {
+    bleSecuredAt = now;
+  }
+}
+
 void hidInputCccdCallback(uint16_t connHandle, BLECharacteristic *characteristic, uint16_t value) {
   (void) connHandle;
 
@@ -300,7 +333,70 @@ void holdButtonGroundLow() {
 #endif
 }
 
+uint16_t readBatteryAdcMillivolts() {
+#if defined(NRF_SAADC)
+  nrf_gpio_cfg(
+      BATTERY_ADC_GPIO,
+      NRF_GPIO_PIN_DIR_INPUT,
+      NRF_GPIO_PIN_INPUT_DISCONNECT,
+      NRF_GPIO_PIN_NOPULL,
+      NRF_GPIO_PIN_S0S1,
+      NRF_GPIO_PIN_NOSENSE);
+
+  volatile int16_t raw = 0;
+  NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Enabled << SAADC_ENABLE_ENABLE_Pos);
+  NRF_SAADC->RESOLUTION = SAADC_RESOLUTION_VAL_12bit;
+  NRF_SAADC->OVERSAMPLE = SAADC_OVERSAMPLE_OVERSAMPLE_Bypass;
+
+  for (uint8_t i = 0; i < 8; i++) {
+    NRF_SAADC->CH[i].PSELN = SAADC_CH_PSELP_PSELP_NC;
+    NRF_SAADC->CH[i].PSELP = SAADC_CH_PSELP_PSELP_NC;
+  }
+
+  NRF_SAADC->CH[0].CONFIG =
+      ((SAADC_CH_CONFIG_RESP_Bypass << SAADC_CH_CONFIG_RESP_Pos) & SAADC_CH_CONFIG_RESP_Msk) |
+      ((SAADC_CH_CONFIG_RESN_Bypass << SAADC_CH_CONFIG_RESN_Pos) & SAADC_CH_CONFIG_RESN_Msk) |
+      ((SAADC_CH_CONFIG_GAIN_Gain1_5 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
+      ((SAADC_CH_CONFIG_REFSEL_Internal << SAADC_CH_CONFIG_REFSEL_Pos) & SAADC_CH_CONFIG_REFSEL_Msk) |
+      ((SAADC_CH_CONFIG_TACQ_40us << SAADC_CH_CONFIG_TACQ_Pos) & SAADC_CH_CONFIG_TACQ_Msk) |
+      ((SAADC_CH_CONFIG_MODE_SE << SAADC_CH_CONFIG_MODE_Pos) & SAADC_CH_CONFIG_MODE_Msk) |
+      ((SAADC_CH_CONFIG_BURST_Disabled << SAADC_CH_CONFIG_BURST_Pos) & SAADC_CH_CONFIG_BURST_Msk);
+  NRF_SAADC->CH[0].PSELN = SAADC_CH_PSELP_PSELP_NC;
+  NRF_SAADC->CH[0].PSELP = BATTERY_ADC_PSEL;
+  NRF_SAADC->RESULT.PTR = reinterpret_cast<uint32_t>(&raw);
+  NRF_SAADC->RESULT.MAXCNT = 1;
+
+  NRF_SAADC->EVENTS_STARTED = 0;
+  NRF_SAADC->TASKS_START = 1;
+  while (!NRF_SAADC->EVENTS_STARTED) {
+  }
+
+  NRF_SAADC->EVENTS_END = 0;
+  NRF_SAADC->TASKS_SAMPLE = 1;
+  while (!NRF_SAADC->EVENTS_END) {
+  }
+
+  NRF_SAADC->EVENTS_STOPPED = 0;
+  NRF_SAADC->TASKS_STOP = 1;
+  while (!NRF_SAADC->EVENTS_STOPPED) {
+  }
+
+  NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Disabled << SAADC_ENABLE_ENABLE_Pos);
+  if (raw < 0) {
+    raw = 0;
+  }
+
+  uint32_t adcMillivolts = (static_cast<uint32_t>(raw) * BATTERY_ADC_FULL_SCALE_MV) / 4095;
+  uint32_t batteryMv = adcMillivolts * BATTERY_ADC_DIVIDER_MULTIPLIER;
+  return static_cast<uint16_t>(batteryMv + BATTERY_CALIBRATION_OFFSET_MV);
+#else
+  return batteryMillivolts;
+#endif
+}
+
 uint16_t readBatteryMillivolts() {
+  return readBatteryAdcMillivolts();
+
 #ifdef SAADC_CH_PSELP_PSELP_VDDHDIV5
   analogReference(AR_INTERNAL_3_0);
   analogReadResolution(12);
@@ -341,13 +437,12 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
   };
 
   static const BatteryPoint curve[] = {
-      {4200, 100},
-      {4150, 96},
-      {4100, 90},
-      {4050, 83},
-      {4000, 75},
-      {3950, 65},
-      {3900, 55},
+      {4130, 100},
+      {4100, 96},
+      {4050, 88},
+      {4000, 78},
+      {3950, 68},
+      {3900, 58},
       {3850, 45},
       {3800, 35},
       {3750, 26},
@@ -384,10 +479,28 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
 
 void updateBatteryLevel(bool forceNotify = false) {
   uint16_t newMillivolts = readBatteryMillivolts();
-  uint8_t measuredLevel = batteryPercentFromMillivolts(newMillivolts);
   uint8_t previousLevel = batteryLevel;
 
   batteryMillivolts = newMillivolts;
+  if (usbVbusActive && batteryInitialized) {
+    uint8_t measuredLevel = batteryPercentFromMillivolts(newMillivolts);
+    if (measuredLevel < batteryLevel) {
+      int delta = static_cast<int>(batteryLevel) - static_cast<int>(measuredLevel);
+      if (delta >= BATTERY_PERCENT_HYSTERESIS) {
+        batteryLevel = measuredLevel;
+      }
+    } else if (measuredLevel > batteryLevel) {
+      uint8_t nextLevel = batteryLevel + BATTERY_USB_CHARGE_STEP_PERCENT;
+      batteryLevel = nextLevel > measuredLevel ? measuredLevel : nextLevel;
+    }
+    batteryService.write(batteryLevel);
+    if (forceNotify || batteryLevel != previousLevel) {
+      batteryService.notify(batteryLevel);
+    }
+    return;
+  }
+
+  uint8_t measuredLevel = batteryPercentFromMillivolts(newMillivolts);
   if (!batteryInitialized) {
     batteryLevel = measuredLevel;
     batteryInitialized = true;
@@ -545,6 +658,7 @@ bool sendBleKeyboardAction(uint8_t keycode, uint8_t modifiers) {
   bool sawConnection = false;
   uint8_t keycodes[6] = {keycode, 0, 0, 0, 0, 0};
   uint8_t keyboardModifiers = toKeyboardModifiers(modifiers);
+  ensureBleFastProfile();
 
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
@@ -596,6 +710,7 @@ bool sendConsumerAction(uint16_t usageCode) {
   }
 
   bool sent = false;
+  ensureBleFastProfile();
 
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
@@ -910,6 +1025,7 @@ void clearBondsAndRestartAdvertising() {
   if (shouldLogSerial()) {
     Serial.println("[ble] clearing bonds, restarting advertising");
   }
+  bleReadySeen = false;
   disconnectAllBleConnections();
   delay(200);
   Bluefruit.Periph.clearBonds();
@@ -917,8 +1033,13 @@ void clearBondsAndRestartAdvertising() {
 }
 
 void updateStatusLed(uint32_t now) {
-  (void) now;
-  setStatusLed(!hasBleReadyForAction(config.singleTap));
+  if (hasBleReadyForAction(config.singleTap)) {
+    bleReadySeen = true;
+  }
+  bool clearBondsHoldActive =
+      buttonState == LOW &&
+      (bondsClearedThisPress || now - pressStartedAt >= CLEAR_BONDS_HOLD_MS);
+  setStatusLed(clearBondsHoldActive || pendingGestureCode != 0 || !bleReadySeen);
 }
 
 void updateButton(uint32_t now) {
@@ -1030,6 +1151,9 @@ void connectCallback(uint16_t connHandle) {
   char peerName[32] = {0};
 
   if (connection) {
+    Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
+    bleIdleParamsRequested = false;
+    bleSecuredAt = 0;
     connection->getPeerName(peerName, sizeof(peerName));
     connection->requestConnectionParameter(BLE_CONN_INTERVAL_MIN, BLE_CONN_SLAVE_LATENCY, BLE_CONN_SUPERVISION_TIMEOUT);
     resetBleHidReadyState();
@@ -1054,6 +1178,9 @@ void connectCallback(uint16_t connHandle) {
 
 void disconnectCallback(uint16_t connHandle, uint8_t reason) {
   resetBleHidReadyState();
+  bleIdleParamsRequested = false;
+  bleSecuredAt = 0;
+  Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
   if (shouldLogSerial()) {
     Serial.print("[ble] disconnect handle=");
     Serial.print(connHandle);
@@ -1089,9 +1216,35 @@ void securedCallback(uint16_t connHandle) {
   printConnParams(connection, "secured");
   markActivity();
   resetBleHidReadyState();
+  bleSecuredAt = millis();
+  bleIdleParamsRequested = false;
   if (pendingGestureCode != 0) {
     lastPendingGestureRetryAt = 0;
   }
+}
+
+void updateBlePowerProfile(uint32_t now) {
+  if (bleIdleParamsRequested || bleSecuredAt == 0 || pendingGestureCode != 0) {
+    return;
+  }
+  if (now - bleSecuredAt < BLE_IDLE_PARAMS_DELAY_MS) {
+    return;
+  }
+
+  for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
+    BLEConnection *connection = Bluefruit.Connection(connHandle);
+    if (!connection || !connection->connected() || !connection->secured()) {
+      continue;
+    }
+
+    connection->requestConnectionParameter(
+        BLE_IDLE_CONN_INTERVAL_MIN,
+        BLE_IDLE_CONN_SLAVE_LATENCY,
+        BLE_IDLE_CONN_SUPERVISION_TIMEOUT);
+  }
+
+  Bluefruit.setTxPower(BLE_TX_POWER_IDLE_DBM);
+  bleIdleParamsRequested = true;
 }
 
 void setupBle() {
@@ -1099,7 +1252,7 @@ void setupBle() {
   Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
   Bluefruit.begin();
   sd_power_dcdc_mode_set(NRF_POWER_DCDC_ENABLE);
-  Bluefruit.setTxPower(BLE_TX_POWER_DBM);
+  Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
   Bluefruit.setName(DEVICE_NAME);
 
   Bluefruit.Periph.setConnectCallback(connectCallback);
@@ -1272,8 +1425,6 @@ void exitSleep() {
   if (!hasActiveBleConnection()) {
     startAdvertising();
   }
-  uint32_t now = millis();
-  queuePendingGesture(GESTURE_SINGLE_TAP, now, true);
   markActivity();
 }
 
@@ -1516,6 +1667,7 @@ void loop() {
   updateButton(now);
   flushPendingGesture(now);
   updateStatusLed(now);
+  updateBlePowerProfile(now);
   emitHeartbeat(now);
 
   if (now - lastBatteryUpdateAt >= BATTERY_UPDATE_INTERVAL_MS) {

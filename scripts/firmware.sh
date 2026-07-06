@@ -93,6 +93,13 @@ case "$TARGET" in
     TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON:-Magic Button}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON:-Huntflow}"
     ;;
+  magic-button-nrf)
+    TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_NRF:-adafruit:nrf52:mdbt50qrx}"
+    TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_NRF:-firmware/magic-button-nrf}"
+    TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_MAGIC_BUTTON_NRF:-.arduino/build-magic-button-nrf}"
+    TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_NRF:-Super Magic Button}"
+    TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_NRF:-Huntflow}"
+    ;;
   *)
     echo "Unknown firmware target: $TARGET" >&2
     exit 1
@@ -125,6 +132,8 @@ compile_magic_button() {
     -b "${TARGET_FQBN}" \
     --libraries "$ROOT_DIR/libraries" \
     --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
+    --build-property "build.usb_product=\"${TARGET_USB_PRODUCT}\"" \
+    --build-property "build.usb_manufacturer=\"${TARGET_USB_MANUFACTURER}\"" \
     ${EXTRA_ARGS} \
     "$ROOT_DIR/${TARGET_SKETCH_PATH}"
 }
@@ -156,7 +165,7 @@ if [ "$MODE" = "upload" ]; then
   # Filter ports by target: one-shot hides ESP boards, magic-button hides Arduino boards
   if [ "$TARGET" = "one-shot" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
-  elif [ "$TARGET" = "magic-button" ]; then
+  elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)
   fi
 
@@ -192,7 +201,7 @@ if [ "$MODE" = "upload" ]; then
     echo "Using port: $TARGET_PORT"
   fi
 
-  if [ "$TARGET" = "magic-button" ]; then
+  if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
     compile_magic_button
   else
     compile_one_shot
@@ -208,7 +217,7 @@ if [ "$MODE" = "upload" ]; then
   exit 0
 fi
 
-if [ "$TARGET" = "magic-button" ]; then
+if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
   compile_magic_button "${EXPORT_FLAG}"
 else
   compile_one_shot "${EXPORT_FLAG}"
