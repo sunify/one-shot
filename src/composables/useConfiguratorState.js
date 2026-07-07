@@ -1,5 +1,5 @@
 import { computed, reactive, ref } from 'vue'
-import { ACTION_TYPES, DEVICE_TYPES, MOUSE_AXES } from '../protocol'
+import { ACTION_TYPES, DEVICE_TYPES, THIRD_ACTION_TRIGGERS } from '../protocol'
 
 function cloneGesture(gesture) {
   return {
@@ -14,6 +14,7 @@ export function useConfiguratorState() {
   const isDevicePressed = ref(false)
   const suppressAutoSave = ref(false)
   const numLeds = ref(1)
+  const thirdActionTrigger = ref(THIRD_ACTION_TRIGGERS.tripleTap)
   const caseColors = reactive({
     keycap: '#ffffff',
     topCase: '#ffffff',
@@ -53,8 +54,10 @@ export function useConfiguratorState() {
       { key: 'doubleTap', label: 'Двойное нажатие', animation: { type: 'tap', count: 2 } },
       {
         key: 'tripleTap',
-        label: deviceType.value === DEVICE_TYPES.magicButton ? 'Долгое нажатие' : 'Тройное нажатие',
-        animation: deviceType.value === DEVICE_TYPES.magicButton ? { type: 'press' } : { type: 'tap', count: 3 }
+        label: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress ? 'Долгое нажатие' : 'Тройное нажатие',
+        animation: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress
+          ? { type: 'press' }
+          : { type: 'tap', count: 3 },
       },
     ]
 
@@ -101,6 +104,11 @@ export function useConfiguratorState() {
 
   function applyDeviceInfo(info) {
     numLeds.value = info.numLeds
+    thirdActionTrigger.value = info.thirdActionTrigger ?? (
+      deviceType.value === DEVICE_TYPES.magicButton
+        ? THIRD_ACTION_TRIGGERS.longPress
+        : THIRD_ACTION_TRIGGERS.tripleTap
+    )
     caseColors.keycap = info.keycap
     caseColors.topCase = info.topCase
     caseColors.topCaseShade = info.topCaseShade
@@ -120,6 +128,7 @@ export function useConfiguratorState() {
     selectedColor,
     supportsLighting,
     suppressAutoSave,
+    thirdActionTrigger,
     updateGesture,
   }
 }

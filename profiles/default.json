@@ -3,6 +3,7 @@
   "button_input_pin": "10",
   "data_pin": "A3",
   "num_leds": 2,
+  "third_action_trigger": "triple_tap",
   "rotary_enabled": false,
   "usb_product": "One Shot",
   "usb_manufacturer": "lunyov"

@@ -45,6 +45,21 @@ case "$TARGET" in
 
     EXTRA_FLAGS="-DBTN_GROUND_PIN=${BTN_GROUND_PIN} -DBTN_INPUT_PIN=${BTN_INPUT_PIN} -DDATA_PIN=${DATA_PIN} -DNUM_LEDS=${NUM_LEDS}"
 
+    THIRD_ACTION_TRIGGER=$(jq -r '.third_action_trigger // "triple_tap"' "$PROFILE_FILE")
+    case "$THIRD_ACTION_TRIGGER" in
+      triple_tap)
+        EXTRA_FLAGS="${EXTRA_FLAGS} -DTHIRD_ACTION_TRIGGER=0"
+        ;;
+      long_press)
+        EXTRA_FLAGS="${EXTRA_FLAGS} -DTHIRD_ACTION_TRIGGER=1"
+        ;;
+      *)
+        echo "Invalid third_action_trigger in profile: ${THIRD_ACTION_TRIGGER}" >&2
+        echo "Expected: triple_tap or long_press" >&2
+        exit 1
+        ;;
+    esac
+
     append_color_flags() {
       key="$1"
       prefix="$2"

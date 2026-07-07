@@ -1,4 +1,10 @@
+#ifndef NUM_LEDS
+#define NUM_LEDS 2
+#endif
+
+#if NUM_LEDS > 0
 #include <FastLED.h>
+#endif
 #include <HID-Project.h>
 #include <EEPROM.h>
 #include "device_protocol.h"
@@ -13,10 +19,6 @@
 #ifndef DATA_PIN
 #define DATA_PIN A3
 #endif
-#ifndef NUM_LEDS
-#define NUM_LEDS 2
-#endif
-
 #ifndef KEYCAP_R
 #define KEYCAP_R 0xFF
 #endif
@@ -61,11 +63,20 @@
 #define TOP_CASE_SHADE_ENABLED 1
 #endif
 
+#ifndef THIRD_ACTION_TRIGGER
+#define THIRD_ACTION_TRIGGER 0
+#endif
+
+#define THIRD_ACTION_TRIGGER_TRIPLE_TAP 0
+#define THIRD_ACTION_TRIGGER_LONG_PRESS 1
+
+#if NUM_LEDS > 0
 #define LED_TYPE WS2812
 #define COLOR_ORDER GRB
 
 CRGB leds[NUM_LEDS];
 CRGB baseColor = CRGB(250, 255, 210);
+#endif
 
 const uint16_t MULTI_TAP_TIMEOUT = 250;
 const uint16_t QUICK_TAP_MAX_PRESS = 100;
@@ -186,7 +197,7 @@ void sendConfigFrame() {
 }
 
 void sendDeviceInfoFrame() {
-  uint8_t payload[14];
+  uint8_t payload[15];
   payload[0]  = NUM_LEDS;
   payload[1]  = KEYCAP_R;
   payload[2]  = KEYCAP_G;
@@ -201,10 +212,12 @@ void sendDeviceInfoFrame() {
   payload[11] = BOTTOM_CASE_G;
   payload[12] = BOTTOM_CASE_B;
   payload[13] = TOP_CASE_SHADE_ENABLED;
+  payload[14] = THIRD_ACTION_TRIGGER;
   sendFrame(Serial, CMD_DEVICE_INFO, payload, sizeof(payload));
 }
 
 void powerOnBlink() {
+#if NUM_LEDS > 0
   fill_solid(leds, NUM_LEDS, baseColor);
 
   FastLED.setBrightness(30);
@@ -221,9 +234,11 @@ void powerOnBlink() {
   delay(50);
   FastLED.setBrightness(brightnessLevels[brightnessStep]);
   FastLED.show();
+#endif
 }
 
 void blinkFeedback(uint8_t count) {
+#if NUM_LEDS > 0
   CRGB feedbackColor = blend(baseColor, CRGB::White, 96);
 
   for (uint8_t i = 0; i < count; i++) {
@@ -236,6 +251,9 @@ void blinkFeedback(uint8_t count) {
     FastLED.show();
     delay(60);
   }
+#else
+  (void)count;
+#endif
 }
 
 void nextBrightness() {
@@ -332,7 +350,11 @@ void updateButton() {
 
   if (!longPressHandled && lastState == LOW && (now - pressStart) > LONG_PRESS) {
 
+#if THIRD_ACTION_TRIGGER == THIRD_ACTION_TRIGGER_LONG_PRESS
+    sendAction(3);
+#else
     nextBrightness();
+#endif
     longPressHandled = true;
     tapCount = 0;
   }
@@ -375,6 +397,7 @@ void updateRotary() {
 #endif
 
 void animateBreathing(uint8_t baseBrightness) {
+#if NUM_LEDS > 0
   uint8_t phaseStep = NUM_LEDS > 1 ? 88 : 0;
 
   for (uint8_t i = 0; i < NUM_LEDS; i++) {
@@ -405,6 +428,9 @@ void animateBreathing(uint8_t baseBrightness) {
     leds[i] = baseColor;
     leds[i].nscale8_video(b);
   }
+#else
+  (void)baseBrightness;
+#endif
 }
 
 void updateSleep() {
@@ -417,6 +443,7 @@ void updateSleep() {
 }
 
 void animateRainbow(uint8_t baseBrightness) {
+#if NUM_LEDS > 0
   uint8_t hueBase = beatsin8(4, 0, 255);
   uint8_t hueStep = NUM_LEDS > 1 ? 30 : 0;
 
@@ -434,9 +461,13 @@ void animateRainbow(uint8_t baseBrightness) {
     CHSV hsv(hueBase + i * hueStep, 150, baseBrightness);
     hsv2rgb_rainbow(hsv, leds[i]);
   }
+#else
+  (void)baseBrightness;
+#endif
 }
 
 void updateLEDs() {
+#if NUM_LEDS > 0
   if (isSleeping) {
     FastLED.clear();
     FastLED.show();
@@ -459,10 +490,13 @@ void updateLEDs() {
   }
 
   FastLED.show();
+#endif
 }
 
 void updateBaseColor() {
+#if NUM_LEDS > 0
   baseColor = CRGB(config.red, config.green, config.blue);
+#endif
 }
 
 void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
@@ -571,8 +605,10 @@ void setup() {
   digitalWrite(BTN_GROUND_PIN, LOW);
   pinMode(BTN_INPUT_PIN, INPUT_PULLUP);
 
+#if NUM_LEDS > 0
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.clear();
+#endif
 
   Consumer.begin();
   Keyboard.begin();

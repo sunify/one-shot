@@ -1,0 +1,16 @@
+{
+  "button_ground_pin": "3",
+  "button_input_pin": "A3",
+  "data_pin": "0",
+  "num_leds": 0,
+  "third_action_trigger": "long_press",
+  "rotary_enabled": false,
+  "usb_product": "Magic Button",
+  "usb_manufacturer": "Huntflow",
+  "colors": {
+    "keycap": "#5ab9cf",
+    "top_case": "#FFFFFF",
+    "top_case_shade": "none",
+    "bottom_case": "#FFFFFF"
+  }
+}

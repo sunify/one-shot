@@ -40,6 +40,11 @@ export const ANIMATION_MODES = {
   rainbow: 2,
 }
 
+export const THIRD_ACTION_TRIGGERS = {
+  tripleTap: 0,
+  longPress: 1,
+}
+
 export const ANIMATION_MODE_OPTIONS = [
   { label: 'Без анимации', value: ANIMATION_MODES.static },
   { label: 'Дыхание', value: ANIMATION_MODES.breathing },
@@ -602,6 +607,7 @@ export function decodeDeviceInfo(payload) {
     topCase: rgbToHex(payload[4], payload[5], payload[6]),
     topCaseShade: shadeEnabled ? rgbToHex(payload[7], payload[8], payload[9]) : 'transparent',
     bottomCase: rgbToHex(payload[10], payload[11], payload[12]),
+    thirdActionTrigger: payload[14] ?? THIRD_ACTION_TRIGGERS.tripleTap,
   }
 }
 
@@ -612,6 +618,7 @@ export const DEFAULT_DEVICE_INFO = {
     topCase: '#ffffff',
     topCaseShade: '#cf00ff',
     bottomCase: '#ffffff',
+    thirdActionTrigger: THIRD_ACTION_TRIGGERS.tripleTap,
   },
   [DEVICE_TYPES.magicButton]: {
     numLeds: 0,
@@ -619,5 +626,6 @@ export const DEFAULT_DEVICE_INFO = {
     topCase: '#ffffff',
     topCaseShade: '#ffffff',
     bottomCase: '#ffffff',
+    thirdActionTrigger: THIRD_ACTION_TRIGGERS.longPress,
   },
 }

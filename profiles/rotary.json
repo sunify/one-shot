@@ -3,6 +3,7 @@
   "button_input_pin": "15",
   "data_pin": "A3",
   "num_leds": 4,
+  "third_action_trigger": "triple_tap",
   "rotary_enabled": true,
   "rotary_a_pin": "2",
   "rotary_b_pin": "3",
