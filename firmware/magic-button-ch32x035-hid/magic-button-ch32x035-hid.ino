@@ -14,10 +14,11 @@ constexpr uint8_t BUTTON_PIN = PIN_PB11;
 #error "This Arduino core does not define PB11/PIN_PB11."
 #endif
 
-constexpr uint16_t DEBOUNCE_MS = 25;
-constexpr uint16_t REARM_MS = 250;
-constexpr uint16_t DOUBLE_TAP_MS = 300;
-constexpr uint16_t LONG_PRESS_MS = 1000;
+constexpr uint16_t DEBOUNCE_MS = 10;
+constexpr uint16_t REARM_MS = 80;
+constexpr uint16_t QUICK_TAP_MAX_PRESS_MS = 100;
+constexpr uint16_t DOUBLE_TAP_MS = 250;
+constexpr uint16_t LONG_PRESS_MS = 600;
 constexpr uint8_t CONFIG_VERSION = 1;
 constexpr uint32_t CONFIG_FLASH_ADDR = 0x0800F700;
 constexpr uint32_t CONFIG_FLASH_SIZE = 256;
@@ -326,6 +327,12 @@ void loop() {
   if (waitForSecondTap) {
     waitForSecondTap = false;
     sendGestureAction(config.doubleTap);
+    lastActionAt = now;
+    return;
+  }
+
+  if (pressDuration > QUICK_TAP_MAX_PRESS_MS) {
+    sendGestureAction(config.singleTap);
     lastActionAt = now;
     return;
   }
