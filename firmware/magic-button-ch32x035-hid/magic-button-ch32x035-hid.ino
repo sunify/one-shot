@@ -1,5 +1,10 @@
 #include <Arduino.h>
 #include <USBHIDKeyboard.h>
+#include <device_protocol.h>
+
+extern "C" {
+#include <ch32x035_flash.h>
+}
 
 #if defined(PB11)
 constexpr uint8_t BUTTON_PIN = PB11;
@@ -11,24 +16,252 @@ constexpr uint8_t BUTTON_PIN = PIN_PB11;
 
 constexpr uint16_t DEBOUNCE_MS = 25;
 constexpr uint16_t REARM_MS = 250;
-constexpr uint8_t HID_KEY_S = 0x16;
+constexpr uint8_t CONFIG_VERSION = 1;
+constexpr uint32_t CONFIG_FLASH_ADDR = 0x0800F700;
+constexpr uint32_t CONFIG_FLASH_SIZE = 256;
+constexpr uint32_t CONFIG_FLASH_MAGIC = 0x4D423332;
 constexpr uint8_t RAW_HID_KEY_OFFSET = 136;
+constexpr uint8_t FEATURE_REPORT_ID = 3;
+constexpr uint8_t FEATURE_REPORT_SIZE = 64;
+
+struct __attribute__((packed)) DeviceConfig {
+  uint8_t version;
+  GestureAction singleTap;
+  GestureAction doubleTap;
+  GestureAction longPress;
+  uint8_t crc;
+};
+
+struct __attribute__((packed)) StoredConfig {
+  uint32_t magic;
+  DeviceConfig config;
+};
 
 int stableState = HIGH;
 int lastRawState = HIGH;
 uint32_t lastRawChangeAt = 0;
 uint32_t lastActionAt = 0;
+DeviceConfig config;
 
-void sendAltS() {
+DeviceConfig defaultConfig() {
+  DeviceConfig cfg;
+  cfg.version = CONFIG_VERSION;
+  cfg.singleTap = {ACTION_TYPE_HOTKEY, 0x16, MODIFIER_ALT};
+  cfg.doubleTap = {ACTION_TYPE_HOTKEY, 0x29, 0};
+  cfg.longPress = {ACTION_TYPE_HOTKEY, 0x28, MODIFIER_CTRL | MODIFIER_GUI};
+  cfg.crc = 0;
+  cfg.crc = computeConfigCrc(cfg);
+  return cfg;
+}
+
+void applyConfig(const DeviceConfig &cfg) {
+  config = cfg;
+}
+
+bool persistConfig(DeviceConfig cfg) {
+  cfg.version = CONFIG_VERSION;
+  cfg.crc = computeConfigCrc(cfg);
+
+  uint32_t page[CONFIG_FLASH_SIZE / sizeof(uint32_t)];
+  for (uint16_t i = 0; i < CONFIG_FLASH_SIZE / sizeof(uint32_t); i++) {
+    page[i] = 0xFFFFFFFF;
+  }
+
+  StoredConfig stored = {CONFIG_FLASH_MAGIC, cfg};
+  memcpy(page, &stored, sizeof(stored));
+
+  noInterrupts();
+  FLASH_Unlock_Fast();
+  FLASH_ErasePage_Fast(CONFIG_FLASH_ADDR);
+  FLASH_BufReset();
+  for (uint16_t i = 0; i < CONFIG_FLASH_SIZE / sizeof(uint32_t); i++) {
+    FLASH_BufLoad(CONFIG_FLASH_ADDR + i * sizeof(uint32_t), page[i]);
+  }
+  FLASH_ProgramPage_Fast(CONFIG_FLASH_ADDR);
+  FLASH_Lock_Fast();
+  interrupts();
+
+  const StoredConfig *written = reinterpret_cast<const StoredConfig *>(CONFIG_FLASH_ADDR);
+  if (written->magic == CONFIG_FLASH_MAGIC && isConfigValid(written->config, CONFIG_VERSION)) {
+    applyConfig(cfg);
+    return true;
+  }
+
+  return false;
+}
+
+void loadConfig() {
+  const StoredConfig *stored = reinterpret_cast<const StoredConfig *>(CONFIG_FLASH_ADDR);
+  if (stored->magic == CONFIG_FLASH_MAGIC && isConfigValid(stored->config, CONFIG_VERSION)) {
+    applyConfig(stored->config);
+    return;
+  }
+
+  const DeviceConfig cfg = defaultConfig();
+  if (!persistConfig(cfg)) {
+    applyConfig(cfg);
+  }
+}
+
+uint8_t hidModifiers(uint8_t modifiers) {
+  uint8_t result = 0;
+  if (modifiers & MODIFIER_CTRL) result |= 0x01;
+  if (modifiers & MODIFIER_SHIFT) result |= 0x02;
+  if (modifiers & MODIFIER_ALT) result |= 0x04;
+  if (modifiers & MODIFIER_GUI) result |= 0x08;
+  return result;
+}
+
+void sendGestureAction(const GestureAction &action) {
   Keyboard.releaseAll();
-  Keyboard.press(KEY_LEFT_ALT);
-  Keyboard.press(RAW_HID_KEY_OFFSET + HID_KEY_S);
-  delay(12);
-  Keyboard.releaseAll();
+
+  if (action.type == ACTION_TYPE_HOTKEY) {
+    const uint8_t modifiers = hidModifiers(action.modifiers);
+    if (modifiers & 0x01) Keyboard.press(KEY_LEFT_CTRL);
+    if (modifiers & 0x02) Keyboard.press(KEY_LEFT_SHIFT);
+    if (modifiers & 0x04) Keyboard.press(KEY_LEFT_ALT);
+    if (modifiers & 0x08) Keyboard.press(KEY_LEFT_GUI);
+    Keyboard.press(RAW_HID_KEY_OFFSET + static_cast<uint8_t>(action.code));
+    delay(12);
+    Keyboard.releaseAll();
+    return;
+  }
+
+  if (action.type == ACTION_TYPE_CONSUMER) {
+    Keyboard.consumerPress(action.code);
+    delay(12);
+    Keyboard.consumerRelease();
+  }
+}
+
+void setFeatureResponse(uint8_t command, const uint8_t *payload, uint8_t payloadLen) {
+  uint8_t frame[FEATURE_REPORT_SIZE] = {0};
+  uint8_t crc = 0;
+  crc = crc8Update(crc, PROTOCOL_VERSION);
+  crc = crc8Update(crc, command);
+  crc = crc8Update(crc, payloadLen);
+  for (uint8_t i = 0; i < payloadLen; i++) {
+    crc = crc8Update(crc, payload[i]);
+  }
+
+  frame[0] = FEATURE_REPORT_ID;
+  frame[1] = FRAME_MAGIC_1;
+  frame[2] = FRAME_MAGIC_2;
+  frame[3] = PROTOCOL_VERSION;
+  frame[4] = command;
+  frame[5] = payloadLen;
+  if (payloadLen > 0) {
+    memcpy(frame + 6, payload, payloadLen);
+  }
+  frame[6 + payloadLen] = crc;
+  USB_setFeatureReportResponse(frame, sizeof(frame));
+}
+
+void setStatusResponse(uint8_t command, uint8_t status) {
+  const uint8_t payload[] = {status};
+  setFeatureResponse(command, payload, sizeof(payload));
+}
+
+void setConfigResponse() {
+  setFeatureResponse(CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(config));
+}
+
+void setPongResponse() {
+  const uint8_t payload[] = {STATUS_OK, DEVICE_TYPE_MAGIC_BUTTON};
+  setFeatureResponse(CMD_PONG, payload, sizeof(payload));
+}
+
+bool readFeatureFrame(const uint8_t *report, uint8_t reportLen, uint8_t &command, const uint8_t *&payload, uint8_t &payloadLen) {
+  if (reportLen > 0 && report[0] == FEATURE_REPORT_ID) {
+    report++;
+    reportLen--;
+  }
+
+  if (reportLen < 6 || report[0] != FRAME_MAGIC_1 || report[1] != FRAME_MAGIC_2) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return false;
+  }
+
+  const uint8_t version = report[2];
+  command = report[3];
+  payloadLen = report[4];
+  const uint8_t frameLen = 2 + 3 + payloadLen + 1;
+  if (version != PROTOCOL_VERSION || frameLen > reportLen) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_COMMAND);
+    return false;
+  }
+
+  uint8_t crc = 0;
+  for (uint8_t i = 2; i < frameLen - 1; i++) {
+    crc = crc8Update(crc, report[i]);
+  }
+  if (crc != report[frameLen - 1]) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_CRC);
+    return false;
+  }
+
+  payload = report + 5;
+  return true;
+}
+
+void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
+  if (payloadLen != sizeof(DeviceConfig)) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  DeviceConfig nextConfig;
+  memcpy(&nextConfig, payload, sizeof(nextConfig));
+  if (!isConfigValid(nextConfig, CONFIG_VERSION) ||
+      !isActionValid(nextConfig.singleTap) ||
+      !isActionValid(nextConfig.doubleTap) ||
+      !isActionValid(nextConfig.longPress)) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  if (!persistConfig(nextConfig)) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  setStatusResponse(CMD_ACK, STATUS_OK);
+}
+
+void handleFeatureReports() {
+  uint8_t report[FEATURE_REPORT_SIZE] = {0};
+  const uint8_t len = USB_readFeatureReport(report, sizeof(report));
+  if (len == 0) {
+    return;
+  }
+
+  uint8_t command = 0;
+  uint8_t payloadLen = 0;
+  const uint8_t *payload = nullptr;
+  if (!readFeatureFrame(report, len, command, payload, payloadLen)) {
+    return;
+  }
+
+  if (command == CMD_GET_CONFIG) {
+    setConfigResponse();
+  } else if (command == CMD_SET_CONFIG) {
+    handleSetConfig(payload, payloadLen);
+  } else if (command == CMD_RESET_CONFIG) {
+    if (!persistConfig(defaultConfig())) {
+      setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+      return;
+    }
+    setConfigResponse();
+  } else if (command == CMD_PING) {
+    setPongResponse();
+  } else {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_COMMAND);
+  }
 }
 
 void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  loadConfig();
   stableState = digitalRead(BUTTON_PIN);
   lastRawState = stableState;
   lastRawChangeAt = millis();
@@ -38,6 +271,8 @@ void setup() {
 }
 
 void loop() {
+  handleFeatureReports();
+
   const int rawState = digitalRead(BUTTON_PIN);
   const uint32_t now = millis();
 
@@ -53,7 +288,7 @@ void loop() {
 
   stableState = rawState;
   if (stableState == LOW && now - lastActionAt >= REARM_MS) {
-    sendAltS();
+    sendGestureAction(config.singleTap);
     lastActionAt = now;
   }
 }

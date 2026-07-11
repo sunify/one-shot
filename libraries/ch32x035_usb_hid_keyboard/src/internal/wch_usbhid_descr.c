@@ -7,6 +7,7 @@
 
 __attribute__((aligned(4))) unsigned char wch_usbhid_EP0_buffer[EP0_SIZE + 2];
 __attribute__((aligned(4))) unsigned char wch_usbhid_EP1_buffer[EP1_SIZE + 2];
+__attribute__((aligned(4))) unsigned char wch_usbhid_EP2_buffer[EP1_SIZE + 2];
 
 // Device Descriptor
 const USB_DEV_DESCR wch_usbhid_DevDescr = {
@@ -27,7 +28,7 @@ const USB_DEV_DESCR wch_usbhid_DevDescr = {
 };
 
 // HID Report Descriptor (Keyboard + Consumer Control)
-const uint8_t wch_usbhid_ReportDescr[] = {
+const uint8_t wch_usbhid_KeyboardReportDescr[] = {
     0x05, 0x01,       // Usage Page (Generic Desktop Ctrls)
     0x09, 0x06,       // Usage (Keyboard)
     0xA1, 0x01,       // Collection (Application)
@@ -87,14 +88,30 @@ const uint8_t wch_usbhid_ReportDescr[] = {
     0xC0              // End Collection
 };
 
-const uint16_t wch_usbhid_ReportDescrLen = sizeof(wch_usbhid_ReportDescr);
+const uint16_t wch_usbhid_KeyboardReportDescrLen = sizeof(wch_usbhid_KeyboardReportDescr);
+
+const uint8_t wch_usbhid_VendorReportDescr[] = {
+    0x06, 0x00, 0xFF, // Usage Page (Vendor Defined)
+    0x09, 0x01,       // Usage (Vendor 1)
+    0xA1, 0x01,       // Collection (Application)
+    0x85, 0x03,       //   Report ID (3)
+    0x15, 0x00,       //   Logical Minimum (0)
+    0x26, 0xFF, 0x00, //   Logical Maximum (255)
+    0x75, 0x08,       //   Report Size (8)
+    0x95, 0x3F,       //   Report Count (63)
+    0x09, 0x01,       //   Usage (Vendor 1)
+    0xB1, 0x02,       //   Feature (Data,Var,Abs)
+    0xC0              // End Collection
+};
+
+const uint16_t wch_usbhid_VendorReportDescrLen = sizeof(wch_usbhid_VendorReportDescr);
 
 // Configuration Descriptor
 __attribute__((aligned(4))) const uint8_t wch_usbhid_CfgDescr[] = {
     // Configuration Descriptor
     0x09, 0x02,                     // bLength, bDescriptorType (Config)
-    0x22, 0x00,                     // wTotalLength (34 bytes)
-    0x01,                           // bNumInterfaces
+    0x3B, 0x00,                     // wTotalLength (59 bytes)
+    0x02,                           // bNumInterfaces
     0x01,                           // bConfigurationValue
     0x00,                           // iConfiguration
     0x80,                           // bmAttributes (Bus Powered)
@@ -116,15 +133,41 @@ __attribute__((aligned(4))) const uint8_t wch_usbhid_CfgDescr[] = {
     0x00,                           // bCountryCode
     0x01,                           // bNumDescriptors
     0x22,                           // bDescriptorType (Report)
-    (uint8_t)(sizeof(wch_usbhid_ReportDescr)),      // wDescriptorLength L
-    (uint8_t)(sizeof(wch_usbhid_ReportDescr) >> 8), // wDescriptorLength H
+    (uint8_t)(sizeof(wch_usbhid_KeyboardReportDescr)),      // wDescriptorLength L
+    (uint8_t)(sizeof(wch_usbhid_KeyboardReportDescr) >> 8), // wDescriptorLength H
 
     // Endpoint 1 IN Descriptor
     0x07, 0x05,                     // bLength, ENDPOINT
     USB_ENDP_ADDR_EP1_IN,           // bEndpointAddress (0x81)
     USB_ENDP_TYPE_INTER,            // bmAttributes (Interrupt)
     0x40, 0x00,                     // wMaxPacketSize (64 bytes)
-    0x01                            // bInterval (1ms - Fastest)
+    0x01,                           // bInterval (1ms - Fastest)
+
+    // Vendor HID Interface Descriptor
+    0x09, 0x04,                     // bLength, bDescriptorType (Interface)
+    0x01,                           // bInterfaceNumber
+    0x00,                           // bAlternateSetting
+    0x01,                           // bNumEndpoints
+    0x03,                           // bInterfaceClass (HID)
+    0x00,                           // bInterfaceSubClass
+    0x00,                           // bInterfaceProtocol
+    0x00,                           // iInterface
+
+    // Vendor HID Descriptor
+    0x09, 0x21,                     // bLength, HID
+    0x11, 0x01,                     // bcdHID (1.11)
+    0x00,                           // bCountryCode
+    0x01,                           // bNumDescriptors
+    0x22,                           // bDescriptorType (Report)
+    (uint8_t)(sizeof(wch_usbhid_VendorReportDescr)),      // wDescriptorLength L
+    (uint8_t)(sizeof(wch_usbhid_VendorReportDescr) >> 8), // wDescriptorLength H
+
+    // Vendor Endpoint 2 IN Descriptor
+    0x07, 0x05,                     // bLength, ENDPOINT
+    USB_ENDP_ADDR_EP2_IN,           // bEndpointAddress (0x82)
+    USB_ENDP_TYPE_INTER,            // bmAttributes (Interrupt)
+    0x40, 0x00,                     // wMaxPacketSize (64 bytes)
+    0x10                            // bInterval
 };
 
 const uint16_t wch_usbhid_CfgDescrLen = sizeof(wch_usbhid_CfgDescr);

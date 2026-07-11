@@ -12,13 +12,16 @@
 // Buffer externs
 extern __attribute__((aligned(4))) unsigned char wch_usbhid_EP0_buffer[];
 extern __attribute__((aligned(4))) unsigned char wch_usbhid_EP1_buffer[];
+extern __attribute__((aligned(4))) unsigned char wch_usbhid_EP2_buffer[];
 
 // Descriptor externs
 extern const USB_DEV_DESCR wch_usbhid_DevDescr;
 extern const uint8_t wch_usbhid_CfgDescr[];
 extern const uint16_t wch_usbhid_CfgDescrLen;
-extern const uint8_t wch_usbhid_ReportDescr[];
-extern const uint16_t wch_usbhid_ReportDescrLen;
+extern const uint8_t wch_usbhid_KeyboardReportDescr[];
+extern const uint16_t wch_usbhid_KeyboardReportDescrLen;
+extern const uint8_t wch_usbhid_VendorReportDescr[];
+extern const uint16_t wch_usbhid_VendorReportDescrLen;
 
 extern const USB_STR_DESCR wch_usbhid_LangDescr;
 extern USB_STR_DESCR wch_usbhid_ManufDescr;
@@ -48,6 +51,9 @@ void generate_all_string_descriptors(void);
 void USB_init(void);
 
 // Helper for C++
+uint8_t USB_featureReportAvailable(void);
+uint8_t USB_readFeatureReport(uint8_t* buffer, uint8_t max_len);
+void USB_setFeatureReportResponse(const uint8_t* buffer, uint8_t len);
 uint32_t USB_write(const uint8_t* buf, uint32_t len);
 uint8_t USB_ready(void);
 

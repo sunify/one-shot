@@ -23,6 +23,7 @@ extern "C" {
 
 #define USB_ENDP_TYPE_INTER     0x03
 #define USB_ENDP_ADDR_EP1_IN    0x81
+#define USB_ENDP_ADDR_EP2_IN    0x82
 
 // HID Requests
 #define HID_REQ_GET_REPORT      0x01

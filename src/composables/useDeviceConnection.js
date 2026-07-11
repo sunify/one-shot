@@ -43,6 +43,14 @@ function delay(ms) {
   })
 }
 
+function dataViewToUint8Array(view) {
+  return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+}
+
+function toHex(bytes) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join(' ')
+}
+
 function isRetryableOpenError(error) {
   const message = error?.message ?? ''
 
@@ -94,6 +102,8 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
   const port = ref(null)
   const reader = ref(null)
   const writer = ref(null)
+  const hidDevice = ref(null)
+  const transport = ref(null)
   const isConnected = ref(false)
   const isConnecting = ref(false)
   const isBusy = ref(false)
@@ -115,16 +125,23 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
   }
 
   async function refreshKnownPorts() {
-    if (!('serial' in navigator)) {
+    const hasSerial = 'serial' in navigator
+    const hasHid = 'hid' in navigator
+
+    if (!hasSerial && !hasHid) {
       hasAvailablePort.value = false
       hasRememberedPort.value = false
       return
     }
 
-    const ports = await navigator.serial.getPorts()
+    const ports = hasSerial ? await navigator.serial.getPorts() : []
+    const hidDevices = hasHid ? await navigator.hid.getDevices() : []
     hasAvailablePort.value = ports.length > 0
+    hasAvailablePort.value = ports.length > 0 || hidDevices.length > 0
 
-    if (port.value) {
+    if (hidDevice.value) {
+      hasRememberedPort.value = hidDevices.some((device) => device === hidDevice.value)
+    } else if (port.value) {
       hasRememberedPort.value = ports.some((knownPort) => isSamePort(knownPort, port.value))
     } else {
       hasRememberedPort.value = hasAvailablePort.value
@@ -217,12 +234,15 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
       reader.value?.releaseLock()
       writer.value?.releaseLock()
       await port.value?.close()
+      await hidDevice.value?.close()
     } catch (error) {
       statusText.value = error.message
     } finally {
       reader.value = null
       writer.value = null
       port.value = null
+      hidDevice.value = null
+      transport.value = null
       isConnected.value = false
       await refreshKnownPorts()
 
@@ -233,6 +253,65 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
   }
 
   async function sendCommand(command, payload = new Uint8Array(), expected = [COMMANDS.ack], timeoutMs = 1500) {
+    if (transport.value === 'hid') {
+      if (!hidDevice.value?.opened) {
+        throw new Error('Сначала подключите устройство')
+      }
+
+      const report = new Uint8Array(63)
+      const requestFrame = buildFrame(command, payload)
+      report.set(requestFrame)
+      console.debug('[webhid] send', {
+        command: `0x${command.toString(16)}`,
+        expected: expected.map((item) => `0x${item.toString(16)}`),
+        frame: toHex(requestFrame),
+        report: toHex(report),
+      })
+
+      try {
+        await hidDevice.value.sendFeatureReport(3, report)
+        console.debug('[webhid] sendFeatureReport ok')
+      } catch (error) {
+        console.error('[webhid] sendFeatureReport failed', error)
+        throw error
+      }
+
+      await delay(60)
+
+      let response
+      try {
+        response = dataViewToUint8Array(await hidDevice.value.receiveFeatureReport(3))
+        console.debug('[webhid] receiveFeatureReport ok', {
+          length: response.length,
+          response: toHex(response),
+        })
+      } catch (error) {
+        console.error('[webhid] receiveFeatureReport failed', error)
+        throw error
+      }
+
+      const parsed = parseFrames(response)
+      console.debug('[webhid] parsed response', {
+        frames: parsed.frames.map((candidate) => ({
+          command: `0x${candidate.command.toString(16)}`,
+          payload: toHex(candidate.payload),
+        })),
+        rest: toHex(parsed.rest),
+      })
+      const frame = parsed.frames.find((candidate) => expected.includes(candidate.command))
+
+      if (!frame) {
+        console.error('[webhid] no expected frame', {
+          expected,
+          response: toHex(response),
+          parsed,
+        })
+        throw new Error('Неожиданный или пустой HID-ответ от устройства')
+      }
+
+      return frame
+    }
+
     if (!writer.value) {
       throw new Error('Сначала подключите устройство')
     }
@@ -314,7 +393,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
   }
 
   async function connect() {
-    if (!('serial' in navigator)) {
+    if (!('serial' in navigator) && !('hid' in navigator)) {
       statusText.value = 'Конфигуратор работает только в Chromium-браузерах'
       return
     }
@@ -324,6 +403,44 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
 
       if (port.value || isConnected.value) {
         await disconnect()
+      }
+
+      if ('hid' in navigator) {
+        console.debug('[webhid] requesting device')
+        const devices = await navigator.hid.requestDevice({
+          filters: [{ vendorId: 0x16c0, productId: 0x27e5, usagePage: 0xff00, usage: 0x01 }],
+        })
+        console.debug('[webhid] selected devices', devices.map((device) => ({
+          productName: device.productName,
+          vendorId: `0x${device.vendorId.toString(16)}`,
+          productId: `0x${device.productId.toString(16)}`,
+          opened: device.opened,
+          collections: device.collections,
+        })))
+
+        if (devices.length > 0) {
+          hidDevice.value = devices[0]
+          try {
+            await hidDevice.value.open()
+            console.debug('[webhid] open ok', {
+              productName: hidDevice.value.productName,
+              opened: hidDevice.value.opened,
+              collections: hidDevice.value.collections,
+            })
+          } catch (error) {
+            console.error('[webhid] open failed', error)
+            throw error
+          }
+          transport.value = 'hid'
+          hasRememberedPort.value = true
+          hasAvailablePort.value = true
+          statusText.value = ''
+          await verifyDevice()
+          await fetchDeviceInfo()
+          isConnected.value = true
+          await refreshConfig()
+          return
+        }
       }
 
       port.value = await navigator.serial.requestPort({
@@ -339,6 +456,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
       await openPortWithRetry(port.value)
       reader.value = port.value.readable.getReader()
       writer.value = port.value.writable.getWriter()
+      transport.value = 'serial'
       receiveBuffer.value = new Uint8Array()
       hasRememberedPort.value = true
       hasAvailablePort.value = true
@@ -387,13 +505,15 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
   }
 
   onMounted(async () => {
-    if (!('serial' in navigator)) {
-      statusText.value = 'Конфгирутор работает только в Хроме'
+    if (!('serial' in navigator) && !('hid' in navigator)) {
+      statusText.value = 'Конфигуратор работает только в Хроме'
       return
     }
 
-    navigator.serial.addEventListener('connect', handleSerialConnect)
-    navigator.serial.addEventListener('disconnect', handleSerialDisconnect)
+    if ('serial' in navigator) {
+      navigator.serial.addEventListener('connect', handleSerialConnect)
+      navigator.serial.addEventListener('disconnect', handleSerialDisconnect)
+    }
     await refreshKnownPorts()
   })
 

@@ -10,6 +10,16 @@ volatile uint8_t hidIdleRate = 0;
 volatile uint8_t hidProtocol = 1;
 volatile uint8_t wch_hid_ep1_complete = 1; // Sync flag
 
+static volatile uint8_t feature_report_available = 0;
+static volatile uint8_t feature_report_len = 0;
+static uint8_t feature_report_buffer[64];
+static uint8_t feature_response_buffer[64];
+static uint8_t feature_response_len = 0;
+
+static uint8_t is_vendor_feature_report(void) {
+  return USB_SetupBuf->wValueH == 0x03 && USB_SetupBuf->wValueL == 0x03;
+}
+
 // Internal Init (Using EP1 - Standard Keyboard)
 static inline void USB_EP_init(void) {
   USBFSD->UEP0_DMA    = (uint32_t)wch_usbhid_EP0_buffer;
@@ -18,9 +28,13 @@ static inline void USB_EP_init(void) {
 
   // EP1 used for IN (Keyboard)
   USBFSD->UEP1_DMA    = (uint32_t)wch_usbhid_EP1_buffer;
+  USBFSD->UEP2_DMA    = (uint32_t)wch_usbhid_EP2_buffer;
   USBFSD->UEP4_1_MOD  = USBFS_UEP1_TX_EN; 
+  USBFSD->UEP2_3_MOD  = USBFS_UEP2_TX_EN;
   USBFSD->UEP1_CTRL_H = USBFS_UEP_AUTO_TOG | USBFS_UEP_T_RES_NAK; 
+  USBFSD->UEP2_CTRL_H = USBFS_UEP_AUTO_TOG | USBFS_UEP_T_RES_NAK;
   USBFSD->UEP1_TX_LEN = 0;
+  USBFSD->UEP2_TX_LEN = 0;
   
   wch_hid_ep1_complete = 1; // Ready
 
@@ -130,11 +144,16 @@ static inline void USB_EP0_SETUP(void) {
             break;
           }
           case 0x22: // HID Report Descriptor
-            USB_pDescr = wch_usbhid_ReportDescr;
-            len = wch_usbhid_ReportDescrLen;
+            if (USB_SetupBuf->wIndexL == 1) {
+              USB_pDescr = wch_usbhid_VendorReportDescr;
+              len = wch_usbhid_VendorReportDescrLen;
+            } else {
+              USB_pDescr = wch_usbhid_KeyboardReportDescr;
+              len = wch_usbhid_KeyboardReportDescrLen;
+            }
             break;
-          case 0x21: // HID Descriptor (offset 18 in Cfg)
-            USB_pDescr = &wch_usbhid_CfgDescr[18];
+          case 0x21: // HID Descriptor
+            USB_pDescr = USB_SetupBuf->wIndexL == 1 ? &wch_usbhid_CfgDescr[43] : &wch_usbhid_CfgDescr[18];
             len = 9;
             break;
           default: len = 0xff; break;
@@ -159,6 +178,16 @@ static inline void USB_EP0_SETUP(void) {
   } 
   else if ((USB_SetupTyp & 0x60) == 0x20) {
       switch(USB_SetupReq) {
+          case HID_REQ_GET_REPORT:
+              if (is_vendor_feature_report()) {
+                  len = USB_SetupLen;
+                  if (len > sizeof(feature_response_buffer)) len = sizeof(feature_response_buffer);
+                  if (len > feature_response_len) len = feature_response_len;
+                  memcpy(wch_usbhid_EP0_buffer, feature_response_buffer, len);
+              } else {
+                  len = 0xff;
+              }
+              break;
           case HID_REQ_SET_IDLE:
               hidIdleRate = USB_SetupBuf->wValueH;
               len = 0; 
@@ -176,8 +205,13 @@ static inline void USB_EP0_SETUP(void) {
               len = 1;
               break;
           case HID_REQ_SET_REPORT:
-              len = USB_SetupLen; 
-              if (len > EP0_SIZE) len = EP0_SIZE;
+              if (is_vendor_feature_report()) {
+                  len = USB_SetupLen;
+                  if (len > EP0_SIZE) len = EP0_SIZE;
+              } else {
+                  len = USB_SetupLen; 
+                  if (len > EP0_SIZE) len = EP0_SIZE;
+              }
               break;
           default:
               len = 0xff;
@@ -222,6 +256,18 @@ static inline void USB_EP0_IN(void) {
 
 static inline void USB_EP0_OUT(void) {
   if (USB_SetupReq == HID_REQ_SET_REPORT) {
+      if (USB_SetupTyp & 0x20) {
+          uint8_t len = USBFSD->RX_LEN;
+          if (len > sizeof(feature_report_buffer)) len = sizeof(feature_report_buffer);
+          memcpy(feature_report_buffer, wch_usbhid_EP0_buffer, len);
+          feature_report_len = len;
+          feature_report_available = 1;
+          if (USB_SetupLen >= len) {
+              USB_SetupLen -= len;
+          } else {
+              USB_SetupLen = 0;
+          }
+      }
       USBFSD->UEP0_TX_LEN = 0;
       USBFSD->UEP0_CTRL_H = USBFS_UEP_T_TOG | USBFS_UEP_T_RES_ACK | USBFS_UEP_R_RES_ACK;
       USB_SetupReq = 0; 
@@ -268,6 +314,26 @@ uint8_t USB_ready(void) {
     return USB_ENUM_OK;
 }
 
+uint8_t USB_featureReportAvailable(void) {
+    return feature_report_available;
+}
+
+uint8_t USB_readFeatureReport(uint8_t* buffer, uint8_t max_len) {
+    if (!feature_report_available) return 0;
+    uint8_t len = feature_report_len;
+    if (len > max_len) len = max_len;
+    memcpy(buffer, feature_report_buffer, len);
+    feature_report_available = 0;
+    feature_report_len = 0;
+    return len;
+}
+
+void USB_setFeatureReportResponse(const uint8_t* buffer, uint8_t len) {
+    if (len > sizeof(feature_response_buffer)) len = sizeof(feature_response_buffer);
+    memcpy(feature_response_buffer, buffer, len);
+    feature_response_len = len;
+}
+
 void USBFS_IRQHandler(void) __attribute__((interrupt));
 void USBFS_IRQHandler(void) {
   uint8_t intflag = USBFSD->INT_FG;
@@ -280,6 +346,9 @@ void USBFS_IRQHandler(void) {
         switch(callIndex) { 
             case 0: USB_EP0_IN(); break; 
             case 1: wch_hid_ep1_complete = 1; break; // Signal EP1 Done
+            case 2:
+              USBFSD->UEP2_CTRL_H = (USBFSD->UEP2_CTRL_H & ~USBFS_UEP_T_RES_MASK) | USBFS_UEP_T_RES_NAK;
+              break;
             default: break; 
         }
         break;
