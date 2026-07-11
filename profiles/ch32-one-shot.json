@@ -1,6 +1,6 @@
 {
   "device_type": "one_shot",
-  "button_input_pin": "PB11",
+  "button_input_pin": "PB12",
   "num_leds": 0,
   "third_action_trigger": "triple_tap",
   "rotary_enabled": false,
