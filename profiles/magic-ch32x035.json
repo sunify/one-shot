@@ -1,4 +1,5 @@
 {
+  "device_type": "magic_button",
   "button_input_pin": "PB11",
   "num_leds": 0,
   "third_action_trigger": "long_press",

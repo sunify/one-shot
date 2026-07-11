@@ -6,6 +6,58 @@ extern "C" {
 #include <ch32x035_flash.h>
 }
 
+#ifndef CH32_DEVICE_TYPE
+#define CH32_DEVICE_TYPE DEVICE_TYPE_ONE_SHOT
+#endif
+#ifndef CH32_PRODUCT_NAME
+#define CH32_PRODUCT_NAME "Magic Button"
+#endif
+#ifndef NUM_LEDS
+#define NUM_LEDS 0
+#endif
+#ifndef KEYCAP_R
+#define KEYCAP_R 0x5A
+#endif
+#ifndef KEYCAP_G
+#define KEYCAP_G 0xB9
+#endif
+#ifndef KEYCAP_B
+#define KEYCAP_B 0xCF
+#endif
+#ifndef TOP_CASE_R
+#define TOP_CASE_R 0xFF
+#endif
+#ifndef TOP_CASE_G
+#define TOP_CASE_G 0xFF
+#endif
+#ifndef TOP_CASE_B
+#define TOP_CASE_B 0xFF
+#endif
+#ifndef TOP_CASE_SHADE_R
+#define TOP_CASE_SHADE_R 0xFF
+#endif
+#ifndef TOP_CASE_SHADE_G
+#define TOP_CASE_SHADE_G 0xFF
+#endif
+#ifndef TOP_CASE_SHADE_B
+#define TOP_CASE_SHADE_B 0xFF
+#endif
+#ifndef BOTTOM_CASE_R
+#define BOTTOM_CASE_R 0xFF
+#endif
+#ifndef BOTTOM_CASE_G
+#define BOTTOM_CASE_G 0xFF
+#endif
+#ifndef BOTTOM_CASE_B
+#define BOTTOM_CASE_B 0xFF
+#endif
+#ifndef TOP_CASE_SHADE_ENABLED
+#define TOP_CASE_SHADE_ENABLED 0
+#endif
+#ifndef THIRD_ACTION_TRIGGER
+#define THIRD_ACTION_TRIGGER 1
+#endif
+
 #if !defined(CH32_BUTTON_PIN)
 #if defined(PB11)
 #define CH32_BUTTON_PIN PB11
@@ -23,7 +75,7 @@ constexpr uint16_t REARM_MS = 80;
 constexpr uint16_t QUICK_TAP_MAX_PRESS_MS = 100;
 constexpr uint16_t DOUBLE_TAP_MS = 250;
 constexpr uint16_t LONG_PRESS_MS = 600;
-constexpr uint8_t CONFIG_VERSION = 1;
+constexpr uint8_t CONFIG_VERSION = 6;
 constexpr uint32_t CONFIG_FLASH_ADDR = 0x0800F700;
 constexpr uint32_t CONFIG_FLASH_SIZE = 256;
 constexpr uint32_t CONFIG_FLASH_MAGIC = 0x4D423332;
@@ -36,6 +88,11 @@ struct __attribute__((packed)) DeviceConfig {
   GestureAction singleTap;
   GestureAction doubleTap;
   GestureAction longPress;
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+  uint8_t animationMode;
+  uint8_t sleepTimeout;
   uint8_t crc;
 };
 
@@ -60,6 +117,11 @@ DeviceConfig defaultConfig() {
   cfg.singleTap = {ACTION_TYPE_HOTKEY, 0x16, MODIFIER_ALT};
   cfg.doubleTap = {ACTION_TYPE_HOTKEY, 0x29, 0};
   cfg.longPress = {ACTION_TYPE_HOTKEY, 0x28, MODIFIER_CTRL | MODIFIER_GUI};
+  cfg.red = 250;
+  cfg.green = 255;
+  cfg.blue = 210;
+  cfg.animationMode = 1;
+  cfg.sleepTimeout = 0;
   cfg.crc = 0;
   cfg.crc = computeConfigCrc(cfg);
   return cfg;
@@ -177,8 +239,36 @@ void setConfigResponse() {
 }
 
 void setPongResponse() {
-  const uint8_t payload[] = {STATUS_OK, DEVICE_TYPE_MAGIC_BUTTON};
-  setFeatureResponse(CMD_PONG, payload, sizeof(payload));
+  uint8_t nameLen = strlen(CH32_PRODUCT_NAME);
+  if (nameLen > FEATURE_REPORT_SIZE - 8) {
+    nameLen = FEATURE_REPORT_SIZE - 8;
+  }
+  uint8_t payload[FEATURE_REPORT_SIZE] = {0};
+  payload[0] = STATUS_OK;
+  payload[1] = CH32_DEVICE_TYPE;
+  memcpy(payload + 2, CH32_PRODUCT_NAME, nameLen);
+  setFeatureResponse(CMD_PONG, payload, 2 + nameLen);
+}
+
+void setDeviceInfoResponse() {
+  const uint8_t payload[] = {
+    NUM_LEDS,
+    KEYCAP_R,
+    KEYCAP_G,
+    KEYCAP_B,
+    TOP_CASE_R,
+    TOP_CASE_G,
+    TOP_CASE_B,
+    TOP_CASE_SHADE_R,
+    TOP_CASE_SHADE_G,
+    TOP_CASE_SHADE_B,
+    BOTTOM_CASE_R,
+    BOTTOM_CASE_G,
+    BOTTOM_CASE_B,
+    TOP_CASE_SHADE_ENABLED,
+    THIRD_ACTION_TRIGGER,
+  };
+  setFeatureResponse(CMD_DEVICE_INFO, payload, sizeof(payload));
 }
 
 bool readFeatureFrame(const uint8_t *report, uint8_t reportLen, uint8_t &command, const uint8_t *&payload, uint8_t &payloadLen) {
@@ -264,6 +354,8 @@ void handleFeatureReports() {
     setConfigResponse();
   } else if (command == CMD_PING) {
     setPongResponse();
+  } else if (command == CMD_GET_DEVICE_INFO) {
+    setDeviceInfoResponse();
   } else {
     setStatusResponse(CMD_ERROR, STATUS_BAD_COMMAND);
   }

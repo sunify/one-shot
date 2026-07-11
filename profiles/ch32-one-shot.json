@@ -1,0 +1,15 @@
+{
+  "device_type": "one_shot",
+  "button_input_pin": "PB11",
+  "num_leds": 0,
+  "third_action_trigger": "triple_tap",
+  "rotary_enabled": false,
+  "usb_product": "One Shot",
+  "usb_manufacturer": "lunyov",
+  "colors": {
+    "keycap": "#dcf2e5",
+    "top_case": "#6fc4ff",
+    "top_case_shade": "none",
+    "bottom_case": "#dcf2e5"
+  }
+}
