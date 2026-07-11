@@ -16,6 +16,8 @@ constexpr uint8_t BUTTON_PIN = PIN_PB11;
 
 constexpr uint16_t DEBOUNCE_MS = 25;
 constexpr uint16_t REARM_MS = 250;
+constexpr uint16_t DOUBLE_TAP_MS = 300;
+constexpr uint16_t LONG_PRESS_MS = 1000;
 constexpr uint8_t CONFIG_VERSION = 1;
 constexpr uint32_t CONFIG_FLASH_ADDR = 0x0800F700;
 constexpr uint32_t CONFIG_FLASH_SIZE = 256;
@@ -41,6 +43,10 @@ int stableState = HIGH;
 int lastRawState = HIGH;
 uint32_t lastRawChangeAt = 0;
 uint32_t lastActionAt = 0;
+uint32_t pressedAt = 0;
+uint32_t singleTapDueAt = 0;
+bool waitForSecondTap = false;
+bool longPressSent = false;
 DeviceConfig config;
 
 DeviceConfig defaultConfig() {
@@ -113,9 +119,8 @@ uint8_t hidModifiers(uint8_t modifiers) {
 }
 
 void sendGestureAction(const GestureAction &action) {
-  Keyboard.releaseAll();
-
   if (action.type == ACTION_TYPE_HOTKEY) {
+    Keyboard.releaseAll();
     const uint8_t modifiers = hidModifiers(action.modifiers);
     if (modifiers & 0x01) Keyboard.press(KEY_LEFT_CTRL);
     if (modifiers & 0x02) Keyboard.press(KEY_LEFT_SHIFT);
@@ -276,6 +281,19 @@ void loop() {
   const int rawState = digitalRead(BUTTON_PIN);
   const uint32_t now = millis();
 
+  if (waitForSecondTap && stableState == HIGH && static_cast<int32_t>(now - singleTapDueAt) >= 0) {
+    waitForSecondTap = false;
+    sendGestureAction(config.singleTap);
+    lastActionAt = now;
+  }
+
+  if (stableState == LOW && !longPressSent && now - pressedAt >= LONG_PRESS_MS) {
+    waitForSecondTap = false;
+    longPressSent = true;
+    sendGestureAction(config.longPress);
+    lastActionAt = now;
+  }
+
   if (rawState != lastRawState) {
     lastRawState = rawState;
     lastRawChangeAt = now;
@@ -287,8 +305,31 @@ void loop() {
   }
 
   stableState = rawState;
-  if (stableState == LOW && now - lastActionAt >= REARM_MS) {
-    sendGestureAction(config.singleTap);
-    lastActionAt = now;
+  if (stableState == LOW) {
+    if (now - lastActionAt < REARM_MS) {
+      return;
+    }
+    pressedAt = now;
+    longPressSent = false;
+    return;
   }
+
+  if (longPressSent) {
+    return;
+  }
+
+  const uint32_t pressDuration = now - pressedAt;
+  if (pressDuration >= LONG_PRESS_MS) {
+    return;
+  }
+
+  if (waitForSecondTap) {
+    waitForSecondTap = false;
+    sendGestureAction(config.doubleTap);
+    lastActionAt = now;
+    return;
+  }
+
+  waitForSecondTap = true;
+  singleTapDueAt = now + DOUBLE_TAP_MS;
 }
