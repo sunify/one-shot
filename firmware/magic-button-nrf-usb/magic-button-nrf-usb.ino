@@ -10,11 +10,12 @@ using namespace Adafruit_LittleFS_Namespace;
 
 namespace {
 
-const char *DEVICE_NAME = "Super Magic Button";
+const char *DEVICE_NAME = "Magic Button";
 const char *MANUFACTURER_NAME = "Huntflow";
-const char *MODEL_NAME = "Super Magic Button";
+const char *MODEL_NAME = "Magic Button";
 const char *CONFIG_FILE_PATH = "/magic-button.cfg";
 const bool ENABLE_SERIAL_DEBUG = false;
+const bool USB_ONLY_FIRMWARE = true;
 const bool FORCE_BLE_HID_ONLY = false;
 const bool RECOVERY_MODE = false;
 
@@ -252,6 +253,9 @@ void markActivity(uint32_t now = millis()) {
 }
 
 bool shouldQueueWakeGesture() {
+  if (USB_ONLY_FIRMWARE) {
+    return false;
+  }
   return !isUsbHidActive() && wokeFromButtonLatch;
 }
 
@@ -262,6 +266,10 @@ void resetBleHidReadyState() {
 }
 
 void ensureBleFastProfile(uint32_t now = millis()) {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
@@ -281,6 +289,10 @@ void ensureBleFastProfile(uint32_t now = millis()) {
 }
 
 void hidInputCccdCallback(uint16_t connHandle, BLECharacteristic *characteristic, uint16_t value) {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   (void) connHandle;
 
   bool notifyEnabled = (value & BLE_GATT_HVX_NOTIFICATION) != 0;
@@ -296,6 +308,10 @@ void hidInputCccdCallback(uint16_t connHandle, BLECharacteristic *characteristic
 }
 
 void queuePendingGesture(uint8_t gestureCode, uint32_t now = millis(), bool wakeGesture = false) {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   if (pendingGestureCode == 0) {
     pendingGestureAt = now;
     pendingBleReadyStableCount = 0;
@@ -480,6 +496,13 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
 }
 
 void updateBatteryLevel(bool forceNotify = false) {
+  if (USB_ONLY_FIRMWARE) {
+    batteryMillivolts = readBatteryMillivolts();
+    batteryLevel = batteryPercentFromMillivolts(batteryMillivolts);
+    batteryInitialized = true;
+    return;
+  }
+
   uint16_t newMillivolts = readBatteryMillivolts();
   uint8_t previousLevel = batteryLevel;
 
@@ -656,6 +679,10 @@ bool sendUsbKeyboardAction(uint8_t keycode, uint8_t modifiers) {
 }
 
 bool sendBleKeyboardAction(uint8_t keycode, uint8_t modifiers) {
+  if (USB_ONLY_FIRMWARE) {
+    return false;
+  }
+
   bool sent = false;
   bool sawConnection = false;
   uint8_t keycodes[6] = {keycode, 0, 0, 0, 0, 0};
@@ -709,6 +736,10 @@ bool sendConsumerAction(uint16_t usageCode) {
     delay(REPORT_DELAY_MS);
     usbHid.sendReport16(USB_REPORT_ID_CONSUMER_CONTROL, 0);
     return true;
+  }
+
+  if (USB_ONLY_FIRMWARE) {
+    return false;
   }
 
   bool sent = false;
@@ -780,7 +811,7 @@ void sendAction(uint8_t gestureCode) {
   if (sent) {
     pendingGestureCode = 0;
     pendingWakeGesture = false;
-  } else if (!isUsbHidActive()) {
+  } else if (!USB_ONLY_FIRMWARE && !isUsbHidActive()) {
     queuePendingGesture(gestureCode, now);
   }
 }
@@ -792,6 +823,12 @@ GestureAction actionForGesture(uint8_t gestureCode);
 void exitSleep();
 
 void flushPendingGesture(uint32_t now) {
+  if (USB_ONLY_FIRMWARE) {
+    pendingGestureCode = 0;
+    pendingWakeGesture = false;
+    return;
+  }
+
   if (pendingGestureCode == 0) {
     return;
   }
@@ -923,6 +960,10 @@ void handleSerial() {
 }
 
 bool hasActiveBleConnection() {
+  if (USB_ONLY_FIRMWARE) {
+    return false;
+  }
+
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
     if (connection && connection->connected()) {
@@ -934,6 +975,10 @@ bool hasActiveBleConnection() {
 }
 
 bool hasSecuredBleConnection() {
+  if (USB_ONLY_FIRMWARE) {
+    return false;
+  }
+
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
     if (connection && connection->connected() && connection->secured()) {
@@ -945,6 +990,10 @@ bool hasSecuredBleConnection() {
 }
 
 bool hasBleReadyForAction(const GestureAction &action) {
+  if (USB_ONLY_FIRMWARE) {
+    return false;
+  }
+
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
     if (!connection || !connection->connected() || !connection->secured()) {
@@ -967,6 +1016,10 @@ bool hasBleReadyForAction(const GestureAction &action) {
 }
 
 void disconnectAllBleConnections() {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
     if (!connection || !connection->connected()) {
@@ -1024,6 +1077,10 @@ void emitHeartbeat(uint32_t now) {
 }
 
 void clearBondsAndRestartAdvertising() {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   if (shouldLogSerial()) {
     Serial.println("[ble] clearing bonds, restarting advertising");
   }
@@ -1035,6 +1092,14 @@ void clearBondsAndRestartAdvertising() {
 }
 
 void updateStatusLed(uint32_t now) {
+  if (USB_ONLY_FIRMWARE) {
+    bool clearBondsHoldActive =
+        buttonState == LOW &&
+        (bondsClearedThisPress || now - pressStartedAt >= CLEAR_BONDS_HOLD_MS);
+    setStatusLed(clearBondsHoldActive);
+    return;
+  }
+
   if (hasBleReadyForAction(config.singleTap)) {
     bleReadySeen = true;
   }
@@ -1110,6 +1175,10 @@ void updateButton(uint32_t now) {
 }
 
 void startAdvertising() {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   Bluefruit.Advertising.stop();
   Bluefruit.Advertising.clearData();
   Bluefruit.ScanResponse.clearData();
@@ -1250,6 +1319,11 @@ void updateBlePowerProfile(uint32_t now) {
 }
 
 void setupBle() {
+  if (USB_ONLY_FIRMWARE) {
+    updateBatteryLevel();
+    return;
+  }
+
   Bluefruit.autoConnLed(false);
   Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
   Bluefruit.begin();
@@ -1292,7 +1366,7 @@ void setupUsbHid() {
 
   usbHid.setPollInterval(2);
   usbHid.setReportDescriptor(USB_HID_REPORT_DESCRIPTOR, sizeof(USB_HID_REPORT_DESCRIPTOR));
-  usbHid.setStringDescriptor("Super Magic Button HID");
+  usbHid.setStringDescriptor("Magic Button HID");
   usbHid.begin();
 
   if (TinyUSBDevice.mounted()) {
@@ -1404,6 +1478,10 @@ bool prepareSystemOffButtonWake() {
 }
 
 void enterSleep() {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   if (sleeping) {
     return;
   }
@@ -1420,6 +1498,10 @@ void enterSleep() {
 }
 
 void exitSleep() {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   if (!sleeping) {
     return;
   }
@@ -1434,6 +1516,10 @@ void exitSleep() {
 }
 
 void enterSystemOff() {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
 #if defined(USE_RAW_BUTTON_GPIO)
   if (!prepareSystemOffButtonWake()) {
     markActivity();
@@ -1536,6 +1622,10 @@ uint8_t sleepBlockReason() {
 }
 
 void idleSleep(uint32_t now) {
+  if (USB_ONLY_FIRMWARE) {
+    return;
+  }
+
   if (RECOVERY_MODE) {
     return;
   }
