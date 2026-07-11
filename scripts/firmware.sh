@@ -135,8 +135,8 @@ case "$TARGET" in
     TARGET_USB_PRODUCT=$(jq -r '.usb_product' "$PROFILE_FILE")
     TARGET_USB_MANUFACTURER=$(jq -r '.usb_manufacturer' "$PROFILE_FILE")
     BTN_INPUT_PIN=$(jq -r '.button_input_pin // "PB11"' "$PROFILE_FILE")
-    USB_PRODUCT_C=$(jq -r '.usb_product | gsub(" "; "\\040") | @json' "$PROFILE_FILE")
-    USB_MANUFACTURER_C=$(jq -r '.usb_manufacturer | gsub(" "; "\\040") | @json' "$PROFILE_FILE")
+    USB_PRODUCT_C=$(jq -r '"\"" + (.usb_product | gsub(" "; "\\040")) + "\""' "$PROFILE_FILE")
+    USB_MANUFACTURER_C=$(jq -r '"\"" + (.usb_manufacturer | gsub(" "; "\\040")) + "\""' "$PROFILE_FILE")
 
     EXTRA_FLAGS="-DCH32_BUTTON_PIN=${BTN_INPUT_PIN} -DWCH_USBHID_PROD_STR=${USB_PRODUCT_C} -DWCH_USBHID_MANUF_STR=${USB_MANUFACTURER_C}"
     ;;
