@@ -16,7 +16,10 @@
     "firmware:upload:magic": "sh ./scripts/firmware.sh upload magic-button",
     "firmware:compile:magic:nrf": "sh ./scripts/firmware.sh compile magic-button-nrf",
     "firmware:export:magic:nrf": "sh ./scripts/firmware.sh export magic-button-nrf",
-    "firmware:upload:magic:nrf": "sh ./scripts/firmware.sh upload magic-button-nrf"
+    "firmware:upload:magic:nrf": "sh ./scripts/firmware.sh upload magic-button-nrf",
+    "firmware:compile:magic:ch32x035": "sh ./scripts/firmware.sh compile magic-button-ch32x035",
+    "firmware:export:magic:ch32x035": "sh ./scripts/firmware.sh export magic-button-ch32x035",
+    "firmware:upload:magic:ch32x035": "sh ./scripts/firmware.sh upload magic-button-ch32x035"
   },
   "author": "",
   "license": "ISC",

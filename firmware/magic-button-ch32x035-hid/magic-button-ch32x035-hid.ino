@@ -6,13 +6,17 @@ extern "C" {
 #include <ch32x035_flash.h>
 }
 
+#if !defined(CH32_BUTTON_PIN)
 #if defined(PB11)
-constexpr uint8_t BUTTON_PIN = PB11;
+#define CH32_BUTTON_PIN PB11
 #elif defined(PIN_PB11)
-constexpr uint8_t BUTTON_PIN = PIN_PB11;
+#define CH32_BUTTON_PIN PIN_PB11
 #else
 #error "This Arduino core does not define PB11/PIN_PB11."
 #endif
+#endif
+
+constexpr uint8_t BUTTON_PIN = CH32_BUTTON_PIN;
 
 constexpr uint16_t DEBOUNCE_MS = 10;
 constexpr uint16_t REARM_MS = 80;
