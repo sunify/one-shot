@@ -115,6 +115,96 @@ case "$TARGET" in
     TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_NRF:-Super Magic Button}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_NRF:-Huntflow}"
     ;;
+  magic-button-ch32x035)
+    TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_CH32X035:-WCH:ch32v:CH32X035_EVT}"
+    TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_CH32X035:-firmware/magic-button-ch32x035-hid}"
+    TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_MAGIC_BUTTON_CH32X035:-.arduino/build-magic-button-ch32x035}"
+
+    if [ -z "$PROFILE" ]; then
+      PROFILE="magic-ch32x035"
+    fi
+
+    PROFILE_FILE="$ROOT_DIR/profiles/${PROFILE}.json"
+    if [ ! -f "$PROFILE_FILE" ]; then
+      echo "Profile not found: $PROFILE_FILE" >&2
+      exit 1
+    fi
+
+    echo "Using profile: $PROFILE"
+
+    TARGET_USB_PRODUCT=$(jq -r '.usb_product' "$PROFILE_FILE")
+    TARGET_USB_MANUFACTURER=$(jq -r '.usb_manufacturer' "$PROFILE_FILE")
+    BTN_INPUT_PIN=$(jq -r '.button_input_pin // "PB11"' "$PROFILE_FILE")
+    NUM_LEDS=$(jq -r '.num_leds // 0' "$PROFILE_FILE")
+    USB_PRODUCT_C=$(jq -r '"\"" + (.usb_product | gsub(" "; "\\040")) + "\""' "$PROFILE_FILE")
+    USB_MANUFACTURER_C=$(jq -r '"\"" + (.usb_manufacturer | gsub(" "; "\\040")) + "\""' "$PROFILE_FILE")
+
+    EXTRA_FLAGS="-DCH32_BUTTON_PIN=${BTN_INPUT_PIN} -DNUM_LEDS=${NUM_LEDS} -DCH32_PRODUCT_NAME=${USB_PRODUCT_C} -DWCH_USBHID_PROD_STR=${USB_PRODUCT_C} -DWCH_USBHID_MANUF_STR=${USB_MANUFACTURER_C}"
+
+    DEVICE_TYPE=$(jq -r '.device_type // "one_shot"' "$PROFILE_FILE")
+    case "$DEVICE_TYPE" in
+      one_shot)
+        EXTRA_FLAGS="${EXTRA_FLAGS} -DCH32_DEVICE_TYPE=DEVICE_TYPE_ONE_SHOT"
+        ;;
+      magic_button)
+        EXTRA_FLAGS="${EXTRA_FLAGS} -DCH32_DEVICE_TYPE=DEVICE_TYPE_MAGIC_BUTTON"
+        ;;
+      *)
+        echo "Invalid device_type in profile: ${DEVICE_TYPE}" >&2
+        echo "Expected: one_shot or magic_button" >&2
+        exit 1
+        ;;
+    esac
+
+    THIRD_ACTION_TRIGGER=$(jq -r '.third_action_trigger // "long_press"' "$PROFILE_FILE")
+    case "$THIRD_ACTION_TRIGGER" in
+      triple_tap)
+        EXTRA_FLAGS="${EXTRA_FLAGS} -DTHIRD_ACTION_TRIGGER=0"
+        ;;
+      long_press)
+        EXTRA_FLAGS="${EXTRA_FLAGS} -DTHIRD_ACTION_TRIGGER=1"
+        ;;
+      *)
+        echo "Invalid third_action_trigger in profile: ${THIRD_ACTION_TRIGGER}" >&2
+        echo "Expected: triple_tap or long_press" >&2
+        exit 1
+        ;;
+    esac
+
+    append_color_flags() {
+      key="$1"
+      prefix="$2"
+      hex=$(jq -r ".colors.${key} // empty" "$PROFILE_FILE")
+      if [ -z "$hex" ]; then
+        return
+      fi
+
+      hex_no_hash="${hex#\#}"
+      if [ "${#hex_no_hash}" -ne 6 ]; then
+        echo "Invalid color in profile: ${key}=${hex}" >&2
+        exit 1
+      fi
+
+      r="0x${hex_no_hash%????}"
+      g_b="${hex_no_hash#??}"
+      g="0x${g_b%??}"
+      b="0x${hex_no_hash#????}"
+
+      EXTRA_FLAGS="${EXTRA_FLAGS} -D${prefix}_R=${r} -D${prefix}_G=${g} -D${prefix}_B=${b}"
+    }
+
+    append_color_flags "keycap" "KEYCAP"
+    append_color_flags "top_case" "TOP_CASE"
+
+    SHADE_VALUE=$(jq -r '.colors.top_case_shade // empty' "$PROFILE_FILE")
+    if [ "$SHADE_VALUE" = "none" ]; then
+      EXTRA_FLAGS="${EXTRA_FLAGS} -DTOP_CASE_SHADE_ENABLED=0"
+    else
+      append_color_flags "top_case_shade" "TOP_CASE_SHADE"
+    fi
+
+    append_color_flags "bottom_case" "BOTTOM_CASE"
+    ;;
   *)
     echo "Unknown firmware target: $TARGET" >&2
     exit 1
@@ -149,11 +239,24 @@ compile_magic_button() {
     --build-path "$ROOT_DIR/${TARGET_BUILD_PATH}" \
     --build-property "build.usb_product=\"${TARGET_USB_PRODUCT}\"" \
     --build-property "build.usb_manufacturer=\"${TARGET_USB_MANUFACTURER}\"" \
+    --build-property "compiler.cpp.extra_flags=${EXTRA_FLAGS}" \
+    --build-property "compiler.c.extra_flags=${EXTRA_FLAGS}" \
     ${EXTRA_ARGS} \
     "$ROOT_DIR/${TARGET_SKETCH_PATH}"
 }
 
 if [ "$MODE" = "upload" ]; then
+  if [ "$TARGET" = "magic-button-ch32x035" ]; then
+    compile_magic_button
+    arduino-cli upload \
+      --config-file "$ROOT_DIR/arduino-cli.yaml" \
+      -b "${TARGET_FQBN}" \
+      --input-dir "$ROOT_DIR/${TARGET_BUILD_PATH}" \
+      "$ROOT_DIR/${TARGET_SKETCH_PATH}"
+
+    exit 0
+  fi
+
   PORTS_JSON=$(arduino-cli board list --format json 2>/dev/null)
 
   # Build serial->product name map from ioreg
@@ -232,7 +335,7 @@ if [ "$MODE" = "upload" ]; then
   exit 0
 fi
 
-if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
+if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-ch32x035" ]; then
   compile_magic_button "${EXPORT_FLAG}"
 else
   compile_one_shot "${EXPORT_FLAG}"

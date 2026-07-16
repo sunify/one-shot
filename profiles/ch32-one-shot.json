@@ -1,16 +1,15 @@
 {
-  "button_ground_pin": "4",
-  "button_input_pin": "A2",
-  "data_pin": "A3",
+  "device_type": "one_shot",
+  "button_input_pin": "PB12",
   "num_leds": 0,
   "third_action_trigger": "triple_tap",
   "rotary_enabled": false,
   "usb_product": "One Shot",
   "usb_manufacturer": "lunyov",
   "colors": {
-    "keycap": "#ffffff",
-    "top_case": "#dcf2e5",
+    "keycap": "#dcf2e5",
+    "top_case": "#6fc4ff",
     "top_case_shade": "none",
-    "bottom_case": "#ffffff"
+    "bottom_case": "#dcf2e5"
   }
 }

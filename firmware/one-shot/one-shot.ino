@@ -82,6 +82,7 @@ const uint16_t MULTI_TAP_TIMEOUT = 250;
 const uint16_t QUICK_TAP_MAX_PRESS = 100;
 const uint16_t LONG_PRESS = 600;
 const uint16_t DEBOUNCE = 10;
+const uint8_t RAW_HID_REPORT_SIZE = 64;
 
 struct __attribute__((packed)) DeviceConfig {
   uint8_t version;
@@ -104,6 +105,7 @@ struct __attribute__((packed)) DeviceConfig {
 const uint8_t CONFIG_VERSION = 6;
 const int EEPROM_ADDRESS = 0;
 DeviceConfig config;
+uint8_t rawHidReport[RAW_HID_REPORT_SIZE];
 
 bool lastState = HIGH;
 uint32_t lastChange = 0;
@@ -196,6 +198,37 @@ void sendConfigFrame() {
   sendFrame(Serial, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
 }
 
+void sendRawHidFrame(uint8_t cmd, const uint8_t *payload, uint8_t payloadLen) {
+  uint8_t frame[RAW_HID_REPORT_SIZE] = {0};
+  uint8_t crc = 0;
+  crc = crc8Update(crc, PROTOCOL_VERSION);
+  crc = crc8Update(crc, cmd);
+  crc = crc8Update(crc, payloadLen);
+  for (uint8_t i = 0; i < payloadLen; i++) {
+    crc = crc8Update(crc, payload[i]);
+  }
+
+  frame[0] = FRAME_MAGIC_1;
+  frame[1] = FRAME_MAGIC_2;
+  frame[2] = PROTOCOL_VERSION;
+  frame[3] = cmd;
+  frame[4] = payloadLen;
+  if (payloadLen > 0) {
+    memcpy(frame + 5, payload, payloadLen);
+  }
+  frame[5 + payloadLen] = crc;
+  RawHID.write(frame, sizeof(frame));
+}
+
+void sendRawHidStatusFrame(uint8_t cmd, uint8_t status) {
+  const uint8_t payload[] = {status};
+  sendRawHidFrame(cmd, payload, sizeof(payload));
+}
+
+void sendRawHidConfigFrame() {
+  sendRawHidFrame(CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
+}
+
 void sendDeviceInfoFrame() {
   uint8_t payload[15];
   payload[0]  = NUM_LEDS;
@@ -214,6 +247,26 @@ void sendDeviceInfoFrame() {
   payload[13] = TOP_CASE_SHADE_ENABLED;
   payload[14] = THIRD_ACTION_TRIGGER;
   sendFrame(Serial, CMD_DEVICE_INFO, payload, sizeof(payload));
+}
+
+void sendRawHidDeviceInfoFrame() {
+  uint8_t payload[15];
+  payload[0]  = NUM_LEDS;
+  payload[1]  = KEYCAP_R;
+  payload[2]  = KEYCAP_G;
+  payload[3]  = KEYCAP_B;
+  payload[4]  = TOP_CASE_R;
+  payload[5]  = TOP_CASE_G;
+  payload[6]  = TOP_CASE_B;
+  payload[7]  = TOP_CASE_SHADE_R;
+  payload[8]  = TOP_CASE_SHADE_G;
+  payload[9]  = TOP_CASE_SHADE_B;
+  payload[10] = BOTTOM_CASE_R;
+  payload[11] = BOTTOM_CASE_G;
+  payload[12] = BOTTOM_CASE_B;
+  payload[13] = TOP_CASE_SHADE_ENABLED;
+  payload[14] = THIRD_ACTION_TRIGGER;
+  sendRawHidFrame(CMD_DEVICE_INFO, payload, sizeof(payload));
 }
 
 void powerOnBlink() {
@@ -526,6 +579,109 @@ void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
   sendStatusFrame(Serial, CMD_ACK, STATUS_OK);
 }
 
+void handleRawHidSetConfig(const uint8_t *payload, uint8_t payloadLen) {
+  if (payloadLen != sizeof(DeviceConfig)) {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  DeviceConfig nextConfig;
+  memcpy(&nextConfig, payload, sizeof(DeviceConfig));
+
+  if (!isConfigValid(nextConfig, CONFIG_VERSION)) {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_CRC);
+    return;
+  }
+
+  if (!isActionValid(nextConfig.singleTap) ||
+      !isActionValid(nextConfig.doubleTap) ||
+      !isActionValid(nextConfig.tripleTap)) {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  persistConfig(nextConfig);
+  updateBaseColor();
+  markActivity();
+  sendRawHidStatusFrame(CMD_ACK, STATUS_OK);
+}
+
+void sendRawHidPingFrame() {
+  const char *productName = USB_PRODUCT;
+  uint8_t nameLen = strlen(productName);
+  if (nameLen > RAW_HID_REPORT_SIZE - 8) {
+    nameLen = RAW_HID_REPORT_SIZE - 8;
+  }
+
+  uint8_t payload[RAW_HID_REPORT_SIZE] = {0};
+  payload[0] = STATUS_OK;
+  payload[1] = DEVICE_TYPE_ONE_SHOT;
+  memcpy(payload + 2, productName, nameLen);
+  sendRawHidFrame(CMD_PONG, payload, 2 + nameLen);
+}
+
+void handleRawHid() {
+  if (RawHID.available() < RAW_HID_REPORT_SIZE) {
+    return;
+  }
+
+  uint8_t report[RAW_HID_REPORT_SIZE] = {0};
+  for (uint8_t i = 0; i < sizeof(report); i++) {
+    const int value = RawHID.read();
+    if (value < 0) {
+      sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_PAYLOAD);
+      return;
+    }
+    report[i] = static_cast<uint8_t>(value);
+  }
+
+  if (report[0] != FRAME_MAGIC_1 || report[1] != FRAME_MAGIC_2) {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  const uint8_t version = report[2];
+  const uint8_t cmd = report[3];
+  const uint8_t payloadLen = report[4];
+  const uint8_t frameLen = 2 + 3 + payloadLen + 1;
+
+  if (version != PROTOCOL_VERSION || frameLen > RAW_HID_REPORT_SIZE) {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_COMMAND);
+    return;
+  }
+
+  uint8_t computedCrc = 0;
+  computedCrc = crc8Update(computedCrc, version);
+  computedCrc = crc8Update(computedCrc, cmd);
+  computedCrc = crc8Update(computedCrc, payloadLen);
+  for (uint8_t i = 0; i < payloadLen; i++) {
+    computedCrc = crc8Update(computedCrc, report[5 + i]);
+  }
+
+  if (computedCrc != report[frameLen - 1]) {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_CRC);
+    return;
+  }
+
+  const uint8_t *payload = report + 5;
+
+  if (cmd == CMD_GET_CONFIG) {
+    sendRawHidConfigFrame();
+  } else if (cmd == CMD_SET_CONFIG) {
+    handleRawHidSetConfig(payload, payloadLen);
+  } else if (cmd == CMD_RESET_CONFIG) {
+    resetConfig();
+    updateBaseColor();
+    sendRawHidConfigFrame();
+  } else if (cmd == CMD_PING) {
+    sendRawHidPingFrame();
+  } else if (cmd == CMD_GET_DEVICE_INFO) {
+    sendRawHidDeviceInfoFrame();
+  } else {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_COMMAND);
+  }
+}
+
 void handleSerial() {
   while (Serial.available() >= 2) {
     if (Serial.read() != FRAME_MAGIC_1) {
@@ -613,6 +769,7 @@ void setup() {
   Consumer.begin();
   Keyboard.begin();
   Mouse.begin();
+  RawHID.begin(rawHidReport, sizeof(rawHidReport));
 
   loadConfig();
   updateBaseColor();
@@ -625,6 +782,7 @@ void setup() {
 
 void loop() {
   handleSerial();
+  handleRawHid();
   updateButton();
 #ifdef ROTARY_ENABLED
   updateRotary();
