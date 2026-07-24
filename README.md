@@ -72,4 +72,17 @@ npm run firmware:export:magic
 npm run firmware:upload:magic
 ```
 
+### XIAO nRF52840 Sense
+
+Для BLE/USB-версии на Seeed Studio XIAO nRF52840 Sense используется отдельный target. Кнопка подключается между `D1` (`P0.03`) и `GND`.
+
+```bash
+arduino-cli core update-index --config-file arduino-cli.yaml
+arduino-cli core install Seeeduino:nrf52 --config-file arduino-cli.yaml
+npm run firmware:compile:magic:xiao
+npm run firmware:upload:magic:xiao
+```
+
+Если serial-порт не появляется, дважды быстро нажмите Reset для входа в UF2 bootloader.
+
 Скрипт `scripts/firmware.sh` читает значения из `.env` и передает их в `arduino-cli`. Для `Magic Button` по умолчанию используются `USB_PRODUCT="Magic Button"` и `USB_MANUFACTURER="Huntflow"`, а имя для ESP32 зафиксировано прямо в скетче, чтобы не упираться в экранирование build flags.

@@ -4,6 +4,7 @@
 #include <InternalFileSystem.h>
 #include "nrf_gpio.h"
 #include "nrf_power.h"
+#include "nrfx_qspi.h"
 #include "device_protocol.h"
 
 using namespace Adafruit_LittleFS_Namespace;
@@ -44,6 +45,55 @@ const uint32_t BUTTON_GROUND_GPIO = NRF_GPIO_PIN_MAP(BUTTON_GROUND_PIN_PORT, BUT
 #define USE_RAW_BUTTON_GROUND_GPIO 1
 #endif
 
+#ifndef BATTERY_ENABLE_PIN_PORT
+#define BATTERY_ENABLE_PIN_PORT -1
+#endif
+
+#ifndef BATTERY_ENABLE_PIN_NUMBER
+#define BATTERY_ENABLE_PIN_NUMBER -1
+#endif
+
+#if BATTERY_ENABLE_PIN_PORT >= 0 && BATTERY_ENABLE_PIN_NUMBER >= 0
+const uint32_t BATTERY_ENABLE_GPIO = NRF_GPIO_PIN_MAP(BATTERY_ENABLE_PIN_PORT, BATTERY_ENABLE_PIN_NUMBER);
+#define USE_BATTERY_ENABLE_GPIO 1
+#endif
+
+#ifndef STATUS_LED_PIN_PORT
+#define STATUS_LED_PIN_PORT 0
+#endif
+
+#ifndef STATUS_LED_PIN_NUMBER
+#define STATUS_LED_PIN_NUMBER 22
+#endif
+
+#ifndef STATUS_LED_IS_ACTIVE_LOW
+#define STATUS_LED_IS_ACTIVE_LOW 0
+#endif
+
+#ifndef STATUS_LED_ENABLED
+#define STATUS_LED_ENABLED 1
+#endif
+
+#ifndef INITIALIZE_BUILTIN_LED
+#define INITIALIZE_BUILTIN_LED 1
+#endif
+
+#ifndef DISABLE_NFC_PINS
+#define DISABLE_NFC_PINS 1
+#endif
+
+#ifndef USB_VBUS_DETECT_ONLY
+#define USB_VBUS_DETECT_ONLY 0
+#endif
+
+#ifndef ENABLE_DCDC_REGULATOR
+#define ENABLE_DCDC_REGULATOR 1
+#endif
+
+#ifndef DCDC_BATTERY_ONLY
+#define DCDC_BATTERY_ONLY 0
+#endif
+
 const uint8_t CONFIG_VERSION = 1;
 const uint16_t MULTI_TAP_TIMEOUT = 250;
 const uint16_t QUICK_TAP_MAX_PRESS = 100;
@@ -52,7 +102,7 @@ const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
 const uint16_t DEBOUNCE_TIME = 10;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
-const uint32_t DEEP_SLEEP_TIMEOUT_MS = 120000;
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 600000;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
@@ -65,22 +115,22 @@ const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput7;
 const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
 const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
 const bool IDLE_USES_SYSTEM_OFF = false;
-const uint16_t BLE_ADVERTISING_INTERVAL_MIN = 32;
-const uint16_t BLE_ADVERTISING_INTERVAL_MAX = 48;
-const uint16_t BLE_ADVERTISING_FAST_TIMEOUT_SEC = 30;
+const uint16_t BLE_ADVERTISING_INTERVAL_FAST = 32;
+const uint16_t BLE_ADVERTISING_INTERVAL_SLOW = 160;
+const uint16_t BLE_ADVERTISING_FAST_TIMEOUT_SEC = 5;
 const uint16_t BLE_CONN_INTERVAL_MIN = 9;
 const uint16_t BLE_CONN_INTERVAL_MAX = 12;
 const uint16_t BLE_CONN_SLAVE_LATENCY = 0;
 const uint16_t BLE_CONN_SUPERVISION_TIMEOUT = 400;
 const int8_t BLE_TX_POWER_FAST_DBM = 0;
-const uint16_t BLE_IDLE_CONN_INTERVAL_MIN = 24;
-const uint16_t BLE_IDLE_CONN_INTERVAL_MAX = 40;
+const uint16_t BLE_IDLE_CONN_INTERVAL_MIN = 12;
+const uint16_t BLE_IDLE_CONN_INTERVAL_MAX = 12;
 const uint16_t BLE_IDLE_CONN_SLAVE_LATENCY = 4;
 const uint16_t BLE_IDLE_CONN_SUPERVISION_TIMEOUT = 400;
 const int8_t BLE_TX_POWER_IDLE_DBM = -8;
-const uint32_t BLE_IDLE_PARAMS_DELAY_MS = 15000;
-const uint32_t STATUS_LED_GPIO = NRF_GPIO_PIN_MAP(0, 22);
-const bool STATUS_LED_ACTIVE_LOW = false;
+const uint32_t BLE_IDLE_PARAMS_DELAY_MS = 2000;
+const uint32_t STATUS_LED_GPIO = NRF_GPIO_PIN_MAP(STATUS_LED_PIN_PORT, STATUS_LED_PIN_NUMBER);
+const bool STATUS_LED_ACTIVE_LOW = STATUS_LED_IS_ACTIVE_LOW != 0;
 const uint32_t DEBUG_LED_GPIO = STATUS_LED_GPIO;
 const uint16_t DEBUG_LED_PULSE_MS = 40;
 const uint16_t DEBUG_LED_GAP_MS = 70;
@@ -198,6 +248,9 @@ void setupDebugLed() {
 }
 
 void setStatusLed(bool enabled) {
+#if !STATUS_LED_ENABLED
+  enabled = false;
+#endif
   bool driveHigh = STATUS_LED_ACTIVE_LOW ? !enabled : enabled;
   if (driveHigh) {
     nrf_gpio_pin_set(STATUS_LED_GPIO);
@@ -212,11 +265,7 @@ void setupStatusLed() {
 }
 
 void setDebugLed(bool enabled) {
-  if (enabled) {
-    nrf_gpio_pin_set(DEBUG_LED_GPIO);
-  } else {
-    nrf_gpio_pin_clear(DEBUG_LED_GPIO);
-  }
+  setStatusLed(enabled);
 }
 
 void pulseDebugLed(uint8_t pulses, uint16_t pulseMs = DEBUG_LED_PULSE_MS, uint16_t gapMs = DEBUG_LED_GAP_MS) {
@@ -335,8 +384,41 @@ void holdButtonGroundLow() {
 #endif
 }
 
+void setupBatteryMeasurement() {
+#if defined(USE_BATTERY_ENABLE_GPIO)
+  // XIAO nRF52840 uses an active-low switch for its battery divider.
+  // Keep it enabled while the firmware may sample P0.31. Sink-only prevents
+  // accidentally driving this battery-connected node high.
+  nrf_gpio_cfg(
+      BATTERY_ENABLE_GPIO,
+      NRF_GPIO_PIN_DIR_OUTPUT,
+      NRF_GPIO_PIN_INPUT_DISCONNECT,
+      NRF_GPIO_PIN_NOPULL,
+      NRF_GPIO_PIN_S0D1,
+      NRF_GPIO_PIN_NOSENSE);
+  nrf_gpio_pin_clear(BATTERY_ENABLE_GPIO);
+#endif
+}
+
+void prepareBatteryPinsForSystemOff() {
+#if defined(BOARD_UICPAL_MINI_NRF52840)
+  // UICPal/Super nRF52840 has a permanent 1M/1M divider from BAT to P0.31.
+  // Unlike the Seeed XIAO, it has no divider-enable GPIO and no BQ25100 CHG
+  // signal on P0.17.
+  // Leave the ADC input buffer disconnected after the last battery sample.
+  nrf_gpio_cfg(
+      BATTERY_ADC_GPIO,
+      NRF_GPIO_PIN_DIR_INPUT,
+      NRF_GPIO_PIN_INPUT_DISCONNECT,
+      NRF_GPIO_PIN_NOPULL,
+      NRF_GPIO_PIN_S0S1,
+      NRF_GPIO_PIN_NOSENSE);
+#endif
+}
+
 uint16_t readBatteryAdcMillivolts() {
 #if defined(NRF_SAADC)
+  setupBatteryMeasurement();
   nrf_gpio_cfg(
       BATTERY_ADC_GPIO,
       NRF_GPIO_PIN_DIR_INPUT,
@@ -398,38 +480,6 @@ uint16_t readBatteryAdcMillivolts() {
 
 uint16_t readBatteryMillivolts() {
   return readBatteryAdcMillivolts();
-
-#ifdef SAADC_CH_PSELP_PSELP_VDDHDIV5
-  analogReference(AR_INTERNAL_3_0);
-  analogReadResolution(12);
-  delay(1);
-
-  uint32_t rawSum = 0;
-  for (uint8_t i = 0; i < BATTERY_SAMPLE_COUNT; i++) {
-    rawSum += analogReadVDDHDIV5();
-  }
-
-  analogReference(AR_DEFAULT);
-  analogReadResolution(10);
-
-  return static_cast<uint16_t>((rawSum / BATTERY_SAMPLE_COUNT) * VDDH_MV_PER_LSB) + BATTERY_CALIBRATION_OFFSET_MV;
-#elif defined(SAADC_CH_PSELP_PSELP_VDD)
-  analogReference(AR_INTERNAL_3_0);
-  analogReadResolution(12);
-  delay(1);
-
-  uint32_t rawSum = 0;
-  for (uint8_t i = 0; i < BATTERY_SAMPLE_COUNT; i++) {
-    rawSum += analogReadVDD();
-  }
-
-  analogReference(AR_DEFAULT);
-  analogReadResolution(10);
-
-  return static_cast<uint16_t>((rawSum / BATTERY_SAMPLE_COUNT) * 0.73242188F) + BATTERY_CALIBRATION_OFFSET_MV;
-#else
-  return batteryMillivolts;
-#endif
 }
 
 uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
@@ -619,10 +669,87 @@ bool isUsbHidActive() {
 
 bool isRawVbusPresent() {
 #if NRF_POWER_HAS_USBREG
+#if USB_VBUS_DETECT_ONLY
+  return nrf_power_usbregstatus_vbusdet_get(NRF_POWER);
+#else
   return nrf_power_usbregstatus_vbusdet_get(NRF_POWER) &&
          nrf_power_usbregstatus_outrdy_get(NRF_POWER);
+#endif
 #else
   return TinyUSBDevice.mounted();
+#endif
+}
+
+void configureDcdcForPowerSource(bool vbusPresent) {
+#if ENABLE_DCDC_REGULATOR
+  const bool enable = !DCDC_BATTERY_ONLY || !vbusPresent;
+  sd_power_dcdc_mode_set(enable ? NRF_POWER_DCDC_ENABLE : NRF_POWER_DCDC_DISABLE);
+#else
+  (void) vbusPresent;
+#endif
+}
+
+void putUnusedExternalFlashInDeepPowerDown() {
+#if defined(BOARD_UICPAL_MINI_NRF52840)
+  const uint8_t sck = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_SCK]);
+  const uint8_t cs = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_CS]);
+  const uint8_t io0 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO0]);
+  const uint8_t io1 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO1]);
+  const uint8_t io2 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO2]);
+  const uint8_t io3 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO3]);
+  const nrfx_qspi_config_t qspiConfig = {
+      .xip_offset = 0,
+      .pins = {
+          .sck_pin = sck,
+          .csn_pin = cs,
+          .io0_pin = io0,
+          .io1_pin = io1,
+          .io2_pin = io2,
+          .io3_pin = io3,
+      },
+      .prot_if = {
+          .readoc = NRF_QSPI_READOC_READ4O,
+          .writeoc = NRF_QSPI_WRITEOC_PP4O,
+          .addrmode = NRF_QSPI_ADDRMODE_24BIT,
+          .dpmconfig = false,
+      },
+      .phy_if = {
+          .sck_delay = 10,
+          .dpmen = false,
+          .spi_mode = NRF_QSPI_MODE_0,
+          .sck_freq = NRF_QSPI_FREQ_32MDIV16,
+      },
+      .irq_priority = 7,
+  };
+
+  if (nrfx_qspi_init(&qspiConfig, nullptr, nullptr) == NRFX_SUCCESS) {
+    const nrf_qspi_cinstr_conf_t command = {
+        .opcode = 0xB9,
+        .length = NRF_QSPI_CINSTR_LEN_1B,
+        .io2_level = true,
+        .io3_level = true,
+        .wipwait = false,
+        .wren = false,
+    };
+    (void) nrfx_qspi_cinstr_xfer(&command, nullptr, nullptr);
+    delayMicroseconds(10);
+    nrfx_qspi_uninit();
+  }
+
+  // P25Q16H specifies its deep-power-down current with every input held at a
+  // CMOS level. Keep CS high and avoid floating QSPI inputs in System OFF.
+  nrf_gpio_cfg_output(sck);
+  nrf_gpio_pin_clear(sck);
+  nrf_gpio_cfg_output(cs);
+  nrf_gpio_pin_set(cs);
+  nrf_gpio_cfg_output(io0);
+  nrf_gpio_pin_clear(io0);
+  nrf_gpio_cfg_output(io1);
+  nrf_gpio_pin_clear(io1);
+  nrf_gpio_cfg_output(io2);
+  nrf_gpio_pin_set(io2);
+  nrf_gpio_cfg_output(io3);
+  nrf_gpio_pin_set(io3);
 #endif
 }
 
@@ -1121,7 +1248,7 @@ void startAdvertising() {
   Bluefruit.ScanResponse.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
-  Bluefruit.Advertising.setInterval(BLE_ADVERTISING_INTERVAL_MIN, BLE_ADVERTISING_INTERVAL_MAX);
+  Bluefruit.Advertising.setInterval(BLE_ADVERTISING_INTERVAL_FAST, BLE_ADVERTISING_INTERVAL_SLOW);
   Bluefruit.Advertising.setFastTimeout(BLE_ADVERTISING_FAST_TIMEOUT_SEC);
   Bluefruit.Advertising.start(0);
 }
@@ -1253,7 +1380,8 @@ void setupBle() {
   Bluefruit.autoConnLed(false);
   Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
   Bluefruit.begin();
-  sd_power_dcdc_mode_set(NRF_POWER_DCDC_ENABLE);
+  sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
+  configureDcdcForPowerSource(isRawVbusPresent());
   Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
   Bluefruit.setName(DEVICE_NAME);
   if (RECOVERY_MODE) {
@@ -1286,9 +1414,14 @@ void setupUsbHid() {
     return;
   }
 
+#if defined(BOARD_UICPAL_MINI_NRF52840) || defined(ARDUINO_Seeed_XIAO_nRF52840_Sense)
+  // Seeed's bundled TinyUSB is initialized by the core before setup() and
+  // predates isInitialized().
+#else
   if (!TinyUSBDevice.isInitialized()) {
     TinyUSBDevice.begin(0);
   }
+#endif
 
   usbHid.setPollInterval(2);
   usbHid.setReportDescriptor(USB_HID_REPORT_DESCRIPTOR, sizeof(USB_HID_REPORT_DESCRIPTOR));
@@ -1315,6 +1448,7 @@ void updateUsbState() {
   bool vbusPresent = isRawVbusPresent();
 
   if (vbusPresent && !lastVbusPresent) {
+    configureDcdcForPowerSource(true);
     if (!usbInitialized) {
       NVIC_SystemReset();
     }
@@ -1332,6 +1466,7 @@ void updateUsbState() {
     TinyUSBDevice.detach();
     Serial.end();
     usbVbusActive = false;
+    configureDcdcForPowerSource(false);
     markActivity();
   }
 
@@ -1409,7 +1544,7 @@ void enterSleep() {
   }
   sleeping = true;
 
-#if defined(LED_BUILTIN)
+#if INITIALIZE_BUILTIN_LED && defined(LED_BUILTIN)
   digitalWrite(LED_BUILTIN, LOW);
 #endif
   setStatusLed(false);
@@ -1441,7 +1576,7 @@ void enterSystemOff() {
   }
 #endif
 
-#if defined(LED_BUILTIN)
+#if INITIALIZE_BUILTIN_LED && defined(LED_BUILTIN)
   digitalWrite(LED_BUILTIN, LOW);
 #endif
   setStatusLed(false);
@@ -1451,6 +1586,8 @@ void enterSystemOff() {
   delay(30);
   Bluefruit.Advertising.stop();
   delay(10);
+  putUnusedExternalFlashInDeepPowerDown();
+  prepareBatteryPinsForSystemOff();
 
   uint8_t softDeviceEnabled = 0;
   (void) sd_softdevice_is_enabled(&softDeviceEnabled);
@@ -1574,17 +1711,16 @@ void idleSleep(uint32_t now) {
     return;
   }
 
-  if (!hasActiveBleConnection()) {
-    delay(ACTIVE_POLL_DELAY_MS);
-    return;
-  }
-
-  waitForEvent();
+  // Let the Arduino loop task block so FreeRTOS can run its tickless idle
+  // path. Calling waitForEvent() directly here leaves the loop task runnable
+  // on the Seeed core and keeps active current around 7-8 mA.
+  delay(ACTIVE_POLL_DELAY_MS);
 }
 
 }  // namespace
 
 void disableNfcPinsIfNeeded() {
+#if DISABLE_NFC_PINS
   if ((NRF_UICR->NFCPINS & UICR_NFCPINS_PROTECT_Msk) ==
       (UICR_NFCPINS_PROTECT_NFC << UICR_NFCPINS_PROTECT_Pos)) {
     NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen;
@@ -1594,11 +1730,12 @@ void disableNfcPinsIfNeeded() {
     NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren;
     NVIC_SystemReset();
   }
+#endif
 }
 
 void setup() {
   disableNfcPinsIfNeeded();
-#if defined(LED_BUILTIN)
+#if INITIALIZE_BUILTIN_LED && defined(LED_BUILTIN)
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
 #endif
@@ -1619,6 +1756,7 @@ void setup() {
 
   setupButtonInput();
   setupButtonGround();
+  setupBatteryMeasurement();
 
   setupStorage();
   loadConfig();

@@ -17,6 +17,11 @@
     "firmware:compile:magic:nrf": "sh ./scripts/firmware.sh compile magic-button-nrf",
     "firmware:export:magic:nrf": "sh ./scripts/firmware.sh export magic-button-nrf",
     "firmware:upload:magic:nrf": "sh ./scripts/firmware.sh upload magic-button-nrf",
+    "firmware:compile:magic:xiao": "sh ./scripts/firmware.sh compile magic-button-xiao-nrf",
+    "firmware:export:magic:xiao": "sh ./scripts/firmware.sh export magic-button-xiao-nrf",
+    "firmware:upload:magic:xiao": "sh ./scripts/firmware.sh upload magic-button-xiao-nrf",
+    "firmware:compile:magic:xiao:power-test": "sh ./scripts/firmware.sh compile magic-button-xiao-power-test",
+    "firmware:upload:magic:xiao:power-test": "sh ./scripts/firmware.sh upload magic-button-xiao-power-test",
     "firmware:compile:ch32x035": "sh ./scripts/firmware.sh compile magic-button-ch32x035",
     "firmware:export:ch32x035": "sh ./scripts/firmware.sh export magic-button-ch32x035",
     "firmware:upload:ch32x035": "sh ./scripts/firmware.sh upload magic-button-ch32x035"
