@@ -72,9 +72,9 @@ npm run firmware:export:magic
 npm run firmware:upload:magic
 ```
 
-### XIAO nRF52840 Sense
+### UICPal MINI nRF52840
 
-Для BLE/USB-версии на Seeed Studio XIAO nRF52840 Sense используется отдельный target. Кнопка подключается между `D1` (`P0.03`) и `GND`.
+Для BLE/USB-версии на UICPal MINI nRF52840 в форм-факторе XIAO используется отдельный target. Кнопка подключается между `D1` (`P0.03`) и `GND`.
 
 ```bash
 arduino-cli core update-index --config-file arduino-cli.yaml
@@ -84,5 +84,10 @@ npm run firmware:upload:magic:xiao
 ```
 
 Если serial-порт не появляется, дважды быстро нажмите Reset для входа в UF2 bootloader.
+
+Прошивка также публикует BLE-сервис конфигурации на базе Nordic UART Service.
+В Chromium-конфигураторе выберите «Подключить по Bluetooth» и затем
+`Super Magic Button`. USB и BLE используют одинаковые кадры протокола, поэтому
+настройки и их формат остаются общими для обоих транспортов.
 
 Скрипт `scripts/firmware.sh` читает значения из `.env` и передает их в `arduino-cli`. Для `Magic Button` по умолчанию используются `USB_PRODUCT="Magic Button"` и `USB_MANUFACTURER="Huntflow"`, а имя для ESP32 зафиксировано прямо в скетче, чтобы не упираться в экранирование build flags.

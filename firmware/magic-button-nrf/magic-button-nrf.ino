@@ -204,6 +204,7 @@ class MagicButtonBleHid : public BLEHidAdafruit {
 BLEDis deviceInfo;
 MagicButtonBleHid hid;
 BLEBas batteryService;
+BLEUart configBle;
 Adafruit_USBD_HID usbHid;
 DeviceConfig config;
 
@@ -645,8 +646,8 @@ void resetConfig() {
   persistConfig(cfg);
 }
 
-void sendConfigFrame() {
-  sendFrame(Serial, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
+void sendConfigFrame(Stream &transport) {
+  sendFrame(transport, CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
 }
 
 uint8_t toKeyboardModifiers(uint8_t modifiers) {
@@ -950,9 +951,9 @@ void flushPendingGesture(uint32_t now) {
   sendAction(code);
 }
 
-void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
+void handleSetConfig(Stream &transport, const uint8_t *payload, uint8_t payloadLen) {
   if (payloadLen != sizeof(DeviceConfig)) {
-    sendError(Serial, STATUS_BAD_PAYLOAD);
+    sendError(transport, STATUS_BAD_PAYLOAD);
     return;
   }
 
@@ -960,34 +961,34 @@ void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
   memcpy(&nextConfig, payload, sizeof(DeviceConfig));
 
   if (!isConfigValid(nextConfig, CONFIG_VERSION)) {
-    sendError(Serial, STATUS_BAD_CRC);
+    sendError(transport, STATUS_BAD_CRC);
     return;
   }
 
   if (!isActionValid(nextConfig.singleTap) ||
       !isActionValid(nextConfig.doubleTap) ||
       !isActionValid(nextConfig.longPress)) {
-    sendError(Serial, STATUS_BAD_PAYLOAD);
+    sendError(transport, STATUS_BAD_PAYLOAD);
     return;
   }
 
   persistConfig(nextConfig);
-  sendStatusFrame(Serial, CMD_ACK, STATUS_OK);
+  sendStatusFrame(transport, CMD_ACK, STATUS_OK);
 }
 
-void handleSerial() {
-  while (Serial.available() >= 2) {
-    if (Serial.read() != FRAME_MAGIC_1) {
+void handleProtocolTransport(Stream &transport) {
+  while (transport.available() >= 2) {
+    if (transport.read() != FRAME_MAGIC_1) {
       continue;
     }
 
-    if (Serial.read() != FRAME_MAGIC_2) {
+    if (transport.read() != FRAME_MAGIC_2) {
       continue;
     }
 
     uint8_t header[3];
-    if (!readExact(Serial, header, sizeof(header))) {
-      sendError(Serial, STATUS_BAD_PAYLOAD);
+    if (!readExact(transport, header, sizeof(header))) {
+      sendError(transport, STATUS_BAD_PAYLOAD);
       return;
     }
 
@@ -997,18 +998,18 @@ void handleSerial() {
     uint8_t payload[sizeof(DeviceConfig)] = {0};
 
     if (payloadLen > sizeof(payload)) {
-      sendError(Serial, STATUS_BAD_PAYLOAD);
+      sendError(transport, STATUS_BAD_PAYLOAD);
       return;
     }
 
-    if (!readExact(Serial, payload, payloadLen)) {
-      sendError(Serial, STATUS_BAD_PAYLOAD);
+    if (!readExact(transport, payload, payloadLen)) {
+      sendError(transport, STATUS_BAD_PAYLOAD);
       return;
     }
 
     uint8_t receivedCrc = 0;
-    if (!readExact(Serial, &receivedCrc, 1)) {
-      sendError(Serial, STATUS_BAD_PAYLOAD);
+    if (!readExact(transport, &receivedCrc, 1)) {
+      sendError(transport, STATUS_BAD_PAYLOAD);
       return;
     }
 
@@ -1021,30 +1022,33 @@ void handleSerial() {
     }
 
     if (version != PROTOCOL_VERSION) {
-      sendError(Serial, STATUS_BAD_COMMAND);
+      sendError(transport, STATUS_BAD_COMMAND);
       continue;
     }
 
     if (receivedCrc != computedCrc) {
-      sendError(Serial, STATUS_BAD_CRC);
+      sendError(transport, STATUS_BAD_CRC);
       continue;
     }
 
     if (cmd == CMD_GET_CONFIG) {
       markActivity();
-      sendConfigFrame();
+      sendConfigFrame(transport);
     } else if (cmd == CMD_SET_CONFIG) {
       markActivity();
-      handleSetConfig(payload, payloadLen);
+      handleSetConfig(transport, payload, payloadLen);
     } else if (cmd == CMD_RESET_CONFIG) {
       markActivity();
       resetConfig();
-      sendConfigFrame();
+      sendConfigFrame(transport);
     } else if (cmd == CMD_PING) {
       markActivity();
-      sendPingFrame(Serial, DEVICE_TYPE_MAGIC_BUTTON, DEVICE_NAME);
+      // Keep BLE responses within the default 20-byte ATT payload. The
+      // browser already receives DEVICE_NAME from the Bluetooth device.
+      const char *productName = &transport == &configBle ? nullptr : DEVICE_NAME;
+      sendPingFrame(transport, DEVICE_TYPE_MAGIC_BUTTON, productName);
     } else {
-      sendError(Serial, STATUS_BAD_COMMAND);
+      sendError(transport, STATUS_BAD_COMMAND);
     }
   }
 }
@@ -1244,7 +1248,7 @@ void startAdvertising() {
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addAppearance(BLE_APPEARANCE_HID_KEYBOARD);
   Bluefruit.Advertising.addService(hid);
-  Bluefruit.Advertising.addService(batteryService);
+  Bluefruit.Advertising.addService(configBle);
   Bluefruit.ScanResponse.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
@@ -1400,6 +1404,7 @@ void setupBle() {
 
   batteryService.begin();
   updateBatteryLevel();
+  configBle.begin();
   hid.begin();
   hid.setInputReportCccdCallback(hidInputCccdCallback);
   Bluefruit.Periph.setConnInterval(BLE_CONN_INTERVAL_MIN, BLE_CONN_INTERVAL_MAX);
@@ -1684,6 +1689,7 @@ void idleSleep(uint32_t now) {
 
   if (sleeping &&
       !hasActiveUsbSession() &&
+      !hasActiveBleConnection() &&
       pendingGestureCode == 0 &&
       now - lastActivityAt >= DEEP_SLEEP_TIMEOUT_MS) {
     enterSystemOff();
@@ -1810,7 +1816,8 @@ void loop() {
   updateUsbState();
 
   uint32_t now = millis();
-  handleSerial();
+  handleProtocolTransport(Serial);
+  handleProtocolTransport(configBle);
   updateButton(now);
   flushPendingGesture(now);
   updateStatusLed(now);
