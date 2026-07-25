@@ -102,7 +102,7 @@ const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
 const uint16_t DEBOUNCE_TIME = 10;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
-const uint32_t DEEP_SLEEP_TIMEOUT_MS = 600000;
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 30000;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
@@ -1689,7 +1689,6 @@ void idleSleep(uint32_t now) {
 
   if (sleeping &&
       !hasActiveUsbSession() &&
-      !hasActiveBleConnection() &&
       pendingGestureCode == 0 &&
       now - lastActivityAt >= DEEP_SLEEP_TIMEOUT_MS) {
     enterSystemOff();
