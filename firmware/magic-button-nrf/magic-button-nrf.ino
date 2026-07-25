@@ -121,15 +121,16 @@ const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
 const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
 const int16_t BATTERY_CALIBRATION_OFFSET_MV = 0;
-#if defined(BOARD_UICPAL_MINI_NRF52840) && defined(SAADC_CH_PSELP_PSELP_VDDHDIV5)
-const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_VDDHDIV5;
-const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 5;
-#define BATTERY_ADC_USES_INTERNAL_VDDH 1
+#if defined(BOARD_UICPAL_MINI_NRF52840)
+// The UICPal MINI has no usable onboard BAT measurement path. Use an external
+// 1M/1M divider with its midpoint connected to D0 (P0.02/AIN0).
+const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 2);
+const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput0;
 #else
 const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 31);
 const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput7;
-const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
 #endif
+const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
 const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
 const bool IDLE_USES_SYSTEM_OFF = false;
 const uint16_t BLE_ADVERTISING_INTERVAL_FAST = 32;
@@ -464,11 +465,8 @@ void setupBatteryMeasurement() {
 }
 
 void prepareBatteryPinsForSystemOff() {
-#if defined(BOARD_UICPAL_MINI_NRF52840) && !defined(BATTERY_ADC_USES_INTERNAL_VDDH)
-  // UICPal/Super nRF52840 has a permanent 1M/1M divider from BAT to P0.31.
-  // Unlike the Seeed XIAO, it has no divider-enable GPIO and no BQ25100 CHG
-  // signal on P0.17.
-  // Leave the ADC input buffer disconnected after the last battery sample.
+#if defined(BOARD_UICPAL_MINI_NRF52840)
+  // Leave the external divider's ADC input buffer disconnected after sampling.
   nrf_gpio_cfg(
       BATTERY_ADC_GPIO,
       NRF_GPIO_PIN_DIR_INPUT,
@@ -482,7 +480,6 @@ void prepareBatteryPinsForSystemOff() {
 uint16_t readBatteryAdcMillivolts() {
 #if defined(NRF_SAADC)
   setupBatteryMeasurement();
-#if !defined(BATTERY_ADC_USES_INTERNAL_VDDH)
   nrf_gpio_cfg(
       BATTERY_ADC_GPIO,
       NRF_GPIO_PIN_DIR_INPUT,
@@ -490,7 +487,6 @@ uint16_t readBatteryAdcMillivolts() {
       NRF_GPIO_PIN_NOPULL,
       NRF_GPIO_PIN_S0S1,
       NRF_GPIO_PIN_NOSENSE);
-#endif
 
   volatile int16_t raw = 0;
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Enabled << SAADC_ENABLE_ENABLE_Pos);
