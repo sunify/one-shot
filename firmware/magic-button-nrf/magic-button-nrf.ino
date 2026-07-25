@@ -100,6 +100,10 @@ const uint32_t BATTERY_ENABLE_GPIO = NRF_GPIO_PIN_MAP(BATTERY_ENABLE_PIN_PORT, B
 #define DCDC_BATTERY_ONLY 0
 #endif
 
+#ifndef BATTERY_CHEMISTRY_CR2032
+#define BATTERY_CHEMISTRY_CR2032 0
+#endif
+
 const uint8_t CONFIG_VERSION = 1;
 const uint16_t MULTI_TAP_TIMEOUT = 250;
 const uint16_t QUICK_TAP_MAX_PRESS = 100;
@@ -117,11 +121,16 @@ const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
 const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
 const int16_t BATTERY_CALIBRATION_OFFSET_MV = 0;
-const float VDDH_MV_PER_LSB = 3.66210938F;
+#if defined(BOARD_UICPAL_MINI_NRF52840) && defined(SAADC_CH_PSELP_PSELP_VDDHDIV5)
+const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_VDDHDIV5;
+const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 5;
+#define BATTERY_ADC_USES_INTERNAL_VDDH 1
+#else
 const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 31);
 const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput7;
-const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
 const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
+#endif
+const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
 const bool IDLE_USES_SYSTEM_OFF = false;
 const uint16_t BLE_ADVERTISING_INTERVAL_FAST = 32;
 const uint16_t BLE_ADVERTISING_INTERVAL_SLOW = 160;
@@ -209,9 +218,16 @@ class MagicButtonBleHid : public BLEHidAdafruit {
   }
 };
 
+class MagicButtonBatteryService : public BLEBas {
+ public:
+  void setLevelCccdCallback(BLECharacteristic::write_cccd_cb_t callback) {
+    _battery.setCccdWriteCallback(callback);
+  }
+};
+
 BLEDis deviceInfo;
 MagicButtonBleHid hid;
-BLEBas batteryService;
+MagicButtonBatteryService batteryService;
 BLEUart configBle;
 Adafruit_USBD_HID usbHid;
 DeviceConfig config;
@@ -372,6 +388,17 @@ void hidInputCccdCallback(uint16_t connHandle, BLECharacteristic *characteristic
   wakeLoopTask();
 }
 
+void batteryLevelCccdCallback(
+    uint16_t connHandle,
+    BLECharacteristic *characteristic,
+    uint16_t value) {
+  (void) characteristic;
+  if ((value & BLE_GATT_HVX_NOTIFICATION) != 0) {
+    batteryService.notify(connHandle, batteryLevel);
+  }
+  wakeLoopTask();
+}
+
 void queuePendingGesture(uint8_t gestureCode, uint32_t now = millis(), bool wakeGesture = false) {
   if (pendingGestureCode == 0) {
     pendingGestureAt = now;
@@ -437,7 +464,7 @@ void setupBatteryMeasurement() {
 }
 
 void prepareBatteryPinsForSystemOff() {
-#if defined(BOARD_UICPAL_MINI_NRF52840)
+#if defined(BOARD_UICPAL_MINI_NRF52840) && !defined(BATTERY_ADC_USES_INTERNAL_VDDH)
   // UICPal/Super nRF52840 has a permanent 1M/1M divider from BAT to P0.31.
   // Unlike the Seeed XIAO, it has no divider-enable GPIO and no BQ25100 CHG
   // signal on P0.17.
@@ -455,6 +482,7 @@ void prepareBatteryPinsForSystemOff() {
 uint16_t readBatteryAdcMillivolts() {
 #if defined(NRF_SAADC)
   setupBatteryMeasurement();
+#if !defined(BATTERY_ADC_USES_INTERNAL_VDDH)
   nrf_gpio_cfg(
       BATTERY_ADC_GPIO,
       NRF_GPIO_PIN_DIR_INPUT,
@@ -462,6 +490,7 @@ uint16_t readBatteryAdcMillivolts() {
       NRF_GPIO_PIN_NOPULL,
       NRF_GPIO_PIN_S0S1,
       NRF_GPIO_PIN_NOSENSE);
+#endif
 
   volatile int16_t raw = 0;
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Enabled << SAADC_ENABLE_ENABLE_Pos);
@@ -483,30 +512,37 @@ uint16_t readBatteryAdcMillivolts() {
       ((SAADC_CH_CONFIG_BURST_Disabled << SAADC_CH_CONFIG_BURST_Pos) & SAADC_CH_CONFIG_BURST_Msk);
   NRF_SAADC->CH[0].PSELN = SAADC_CH_PSELP_PSELP_NC;
   NRF_SAADC->CH[0].PSELP = BATTERY_ADC_PSEL;
-  NRF_SAADC->RESULT.PTR = reinterpret_cast<uint32_t>(&raw);
-  NRF_SAADC->RESULT.MAXCNT = 1;
+  // Discard the first conversion so the SAADC sampling capacitor can settle,
+  // then average several fresh conversions.
+  int32_t rawSum = 0;
+  for (uint8_t sampleIndex = 0; sampleIndex <= BATTERY_SAMPLE_COUNT; sampleIndex++) {
+    raw = 0;
+    NRF_SAADC->RESULT.PTR = reinterpret_cast<uint32_t>(&raw);
+    NRF_SAADC->RESULT.MAXCNT = 1;
 
-  NRF_SAADC->EVENTS_STARTED = 0;
-  NRF_SAADC->TASKS_START = 1;
-  while (!NRF_SAADC->EVENTS_STARTED) {
-  }
+    NRF_SAADC->EVENTS_STARTED = 0;
+    NRF_SAADC->TASKS_START = 1;
+    while (!NRF_SAADC->EVENTS_STARTED) {
+    }
 
-  NRF_SAADC->EVENTS_END = 0;
-  NRF_SAADC->TASKS_SAMPLE = 1;
-  while (!NRF_SAADC->EVENTS_END) {
-  }
+    NRF_SAADC->EVENTS_END = 0;
+    NRF_SAADC->TASKS_SAMPLE = 1;
+    while (!NRF_SAADC->EVENTS_END) {
+    }
 
-  NRF_SAADC->EVENTS_STOPPED = 0;
-  NRF_SAADC->TASKS_STOP = 1;
-  while (!NRF_SAADC->EVENTS_STOPPED) {
+    NRF_SAADC->EVENTS_STOPPED = 0;
+    NRF_SAADC->TASKS_STOP = 1;
+    while (!NRF_SAADC->EVENTS_STOPPED) {
+    }
+
+    if (sampleIndex > 0 && raw > 0) {
+      rawSum += raw;
+    }
   }
 
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Disabled << SAADC_ENABLE_ENABLE_Pos);
-  if (raw < 0) {
-    raw = 0;
-  }
-
-  uint32_t adcMillivolts = (static_cast<uint32_t>(raw) * BATTERY_ADC_FULL_SCALE_MV) / 4095;
+  uint32_t rawAverage = static_cast<uint32_t>(rawSum / BATTERY_SAMPLE_COUNT);
+  uint32_t adcMillivolts = (rawAverage * BATTERY_ADC_FULL_SCALE_MV) / 4095;
   uint32_t batteryMv = adcMillivolts * BATTERY_ADC_DIVIDER_MULTIPLIER;
   return static_cast<uint16_t>(batteryMv + BATTERY_CALIBRATION_OFFSET_MV);
 #else
@@ -524,6 +560,19 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
     uint8_t percent;
   };
 
+#if BATTERY_CHEMISTRY_CR2032
+  static const BatteryPoint curve[] = {
+      {3050, 100},
+      {3000, 90},
+      {2950, 75},
+      {2900, 60},
+      {2850, 45},
+      {2800, 30},
+      {2700, 15},
+      {2600, 5},
+      {2500, 0},
+  };
+#else
   static const BatteryPoint curve[] = {
       {4130, 100},
       {4100, 96},
@@ -540,6 +589,7 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
       {3550, 4},
       {3500, 0},
   };
+#endif
 
   if (millivolts >= curve[0].millivolts) {
     return curve[0].percent;
@@ -1284,6 +1334,7 @@ void startAdvertising() {
   Bluefruit.Advertising.addAppearance(BLE_APPEARANCE_HID_KEYBOARD);
   Bluefruit.Advertising.addService(hid);
   Bluefruit.Advertising.addService(configBle);
+  Bluefruit.ScanResponse.addService(batteryService);
   Bluefruit.ScanResponse.addName();
 
   Bluefruit.Advertising.restartOnDisconnect(true);
@@ -1441,6 +1492,7 @@ void setupBle() {
   deviceInfo.begin();
 
   batteryService.begin();
+  batteryService.setLevelCccdCallback(batteryLevelCccdCallback);
   updateBatteryLevel();
   configBle.begin();
   configBle.setRxCallback([](uint16_t connHandle) {
