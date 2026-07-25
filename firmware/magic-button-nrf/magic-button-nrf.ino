@@ -104,6 +104,7 @@ const uint16_t REPORT_DELAY_MS = 12;
 const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
 const uint32_t DEEP_SLEEP_TIMEOUT_MS = 30000;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
+const uint16_t IDLE_POLL_DELAY_MS = 20;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
@@ -1719,7 +1720,7 @@ void idleSleep(uint32_t now) {
   // Let the Arduino loop task block so FreeRTOS can run its tickless idle
   // path. Calling waitForEvent() directly here leaves the loop task runnable
   // on the Seeed core and keeps active current around 7-8 mA.
-  delay(ACTIVE_POLL_DELAY_MS);
+  delay(IDLE_POLL_DELAY_MS);
 }
 
 }  // namespace
