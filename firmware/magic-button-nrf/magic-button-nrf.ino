@@ -99,6 +99,7 @@ const uint16_t MULTI_TAP_TIMEOUT = 250;
 const uint16_t QUICK_TAP_MAX_PRESS = 100;
 const uint16_t LONG_PRESS_TIME = 600;
 const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
+const uint32_t CONFIG_ADVERTISING_TIMEOUT_MS = 60000;
 const uint16_t DEBOUNCE_TIME = 10;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
@@ -238,6 +239,8 @@ bool keyboardNotifySubscribedThisConnection = false;
 bool consumerNotifySubscribedThisConnection = false;
 bool batteryInitialized = false;
 bool bleReadySeen = false;
+bool configAdvertisingActive = false;
+uint32_t configAdvertisingUntil = 0;
 uint8_t batteryLevel = 100;
 uint16_t batteryMillivolts = 4200;
 
@@ -1110,6 +1113,32 @@ void disconnectAllBleConnections() {
 
 void startAdvertising();
 
+void startConfigAdvertising(uint32_t now) {
+  if (Bluefruit.connected() >= 2) {
+    return;
+  }
+
+  configAdvertisingActive = true;
+  configAdvertisingUntil = now + CONFIG_ADVERTISING_TIMEOUT_MS;
+  startAdvertising();
+  markActivity(now);
+}
+
+void updateConfigAdvertising(uint32_t now) {
+  if (configAdvertisingActive &&
+      static_cast<int32_t>(now - configAdvertisingUntil) >= 0) {
+    configAdvertisingActive = false;
+  }
+
+  // A normal HID connection uses the first peripheral slot. Advertising the
+  // second slot is enabled only by the triple-click configuration gesture.
+  if (!configAdvertisingActive &&
+      hasActiveBleConnection() &&
+      Bluefruit.Advertising.isRunning()) {
+    Bluefruit.Advertising.stop();
+  }
+}
+
 void emitHeartbeat(uint32_t now) {
   if (!shouldLogSerial()) {
     return;
@@ -1204,7 +1233,11 @@ void updateButton(uint32_t now) {
     }
 
     if (tapCount > 0 && buttonState == HIGH && now - lastReleaseAt >= MULTI_TAP_TIMEOUT) {
-      sendAction(tapCount == 1 ? GESTURE_SINGLE_TAP : GESTURE_DOUBLE_TAP);
+      if (tapCount >= 3) {
+        startConfigAdvertising(now);
+      } else {
+        sendAction(tapCount == 1 ? GESTURE_SINGLE_TAP : GESTURE_DOUBLE_TAP);
+      }
       tapCount = 0;
     }
 
@@ -1383,7 +1416,7 @@ void updateBlePowerProfile(uint32_t now) {
 void setupBle() {
   Bluefruit.autoConnLed(false);
   Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
-  Bluefruit.begin();
+  Bluefruit.begin(2, 0);
   sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
   configureDcdcForPowerSource(isRawVbusPresent());
   Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
@@ -1822,6 +1855,7 @@ void loop() {
   flushPendingGesture(now);
   updateStatusLed(now);
   updateBlePowerProfile(now);
+  updateConfigAdvertising(now);
   emitHeartbeat(now);
 
   if (now - lastBatteryUpdateAt >= BATTERY_UPDATE_INTERVAL_MS) {
