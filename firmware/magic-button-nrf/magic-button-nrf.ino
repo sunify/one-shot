@@ -2,6 +2,8 @@
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
+#include <FreeRTOS.h>
+#include <task.h>
 #include "nrf_gpio.h"
 #include "nrf_power.h"
 #include "nrfx_qspi.h"
@@ -25,6 +27,10 @@ const bool RECOVERY_MODE = false;
 
 #ifndef BUTTON_PIN_NUMBER
 #define BUTTON_PIN_NUMBER 20
+#endif
+
+#ifndef BUTTON_INTERRUPT_PIN
+#define BUTTON_INTERRUPT_PIN -1
 #endif
 
 #if defined(BUTTON_PIN_PORT) && defined(BUTTON_PIN_NUMBER)
@@ -105,6 +111,7 @@ const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
 const uint32_t DEEP_SLEEP_TIMEOUT_MS = 30000;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint16_t IDLE_POLL_DELAY_MS = 20;
+const uint32_t MAX_IDLE_BLOCK_MS = 1000;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
@@ -238,6 +245,8 @@ bool bleIdleParamsRequested = false;
 bool keyboardNotifySubscribedThisConnection = false;
 bool consumerNotifySubscribedThisConnection = false;
 bool batteryInitialized = false;
+TaskHandle_t loopTaskHandle = nullptr;
+bool buttonInterruptAttached = false;
 bool bleReadySeen = false;
 uint8_t batteryLevel = 100;
 uint16_t batteryMillivolts = 4200;
@@ -298,6 +307,22 @@ bool shouldLogSerial() {
 bool isUsbHidActive();
 int readButtonState();
 
+void wakeLoopTask() {
+  if (loopTaskHandle) {
+    xTaskNotifyGive(loopTaskHandle);
+  }
+}
+
+void buttonPressInterrupt() {
+  if (!loopTaskHandle) {
+    return;
+  }
+
+  BaseType_t higherPriorityTaskWoken = pdFALSE;
+  vTaskNotifyGiveFromISR(loopTaskHandle, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+
 void markActivity(uint32_t now = millis()) {
   lastActivityAt = now;
 }
@@ -344,6 +369,7 @@ void hidInputCccdCallback(uint16_t connHandle, BLECharacteristic *characteristic
   if (notifyEnabled && pendingGestureCode != 0) {
     lastPendingGestureRetryAt = 0;
   }
+  wakeLoopTask();
 }
 
 void queuePendingGesture(uint8_t gestureCode, uint32_t now = millis(), bool wakeGesture = false) {
@@ -361,6 +387,14 @@ void setupButtonInput() {
   nrf_gpio_cfg_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP);
 #else
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+#endif
+}
+
+void setupButtonInterrupt() {
+#if BUTTON_INTERRUPT_PIN >= 0
+  loopTaskHandle = xTaskGetCurrentTaskHandle();
+  buttonInterruptAttached =
+      attachInterrupt(BUTTON_INTERRUPT_PIN, buttonPressInterrupt, FALLING) != 0;
 #endif
 }
 
@@ -1308,6 +1342,7 @@ void connectCallback(uint16_t connHandle) {
   if (pendingGestureCode != 0) {
     lastPendingGestureRetryAt = 0;
   }
+  wakeLoopTask();
 }
 
 void disconnectCallback(uint16_t connHandle, uint8_t reason) {
@@ -1322,6 +1357,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason) {
     Serial.println(reason, HEX);
   }
   markActivity();
+  wakeLoopTask();
 }
 
 void pairCompleteCallback(uint16_t connHandle, uint8_t authStatus) {
@@ -1355,6 +1391,7 @@ void securedCallback(uint16_t connHandle) {
   if (pendingGestureCode != 0) {
     lastPendingGestureRetryAt = 0;
   }
+  wakeLoopTask();
 }
 
 void updateBlePowerProfile(uint32_t now) {
@@ -1406,6 +1443,10 @@ void setupBle() {
   batteryService.begin();
   updateBatteryLevel();
   configBle.begin();
+  configBle.setRxCallback([](uint16_t connHandle) {
+    (void) connHandle;
+    wakeLoopTask();
+  });
   hid.begin();
   hid.setInputReportCccdCallback(hidInputCccdCallback);
   Bluefruit.Periph.setConnInterval(BLE_CONN_INTERVAL_MIN, BLE_CONN_INTERVAL_MAX);
@@ -1481,6 +1522,9 @@ void updateUsbState() {
 
 void armButtonWakeSense() {
 #if defined(USE_RAW_BUTTON_GPIO)
+  if (buttonInterruptAttached) {
+    return;
+  }
   nrf_gpio_cfg_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP);
 
   NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] =
@@ -1496,6 +1540,9 @@ void armButtonWakeSense() {
 
 void disarmButtonWakeSense() {
 #if defined(USE_RAW_BUTTON_GPIO)
+  if (buttonInterruptAttached) {
+    return;
+  }
   NRF_GPIOTE->INTENCLR = (1UL << WAKE_GPIOTE_CHANNEL);
   NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] = 0;
   NRF_GPIOTE->EVENTS_IN[WAKE_GPIOTE_CHANNEL] = 0;
@@ -1678,6 +1725,58 @@ uint8_t sleepBlockReason() {
   return 0;
 }
 
+uint32_t millisecondsUntil(uint32_t now, uint32_t deadline) {
+  int32_t remaining = static_cast<int32_t>(deadline - now);
+  return remaining > 0 ? static_cast<uint32_t>(remaining) : 0;
+}
+
+void shortenWait(uint32_t &waitMs, uint32_t candidateMs) {
+  if (candidateMs < waitMs) {
+    waitMs = candidateMs;
+  }
+}
+
+uint32_t nextLoopWaitMs(uint32_t now) {
+  uint32_t waitMs = MAX_IDLE_BLOCK_MS;
+
+  if (pendingGestureCode != 0) {
+    shortenWait(
+        waitMs,
+        millisecondsUntil(now, lastPendingGestureRetryAt + PENDING_GESTURE_RETRY_INTERVAL_MS));
+    shortenWait(
+        waitMs,
+        millisecondsUntil(now, pendingGestureAt + PENDING_GESTURE_MAX_AGE_MS));
+  }
+
+  if (!bleIdleParamsRequested && bleSecuredAt != 0) {
+    shortenWait(waitMs, millisecondsUntil(now, bleSecuredAt + BLE_IDLE_PARAMS_DELAY_MS));
+  }
+
+  shortenWait(
+      waitMs,
+      millisecondsUntil(
+          now,
+          lastActivityAt + (sleeping ? DEEP_SLEEP_TIMEOUT_MS : IDLE_SLEEP_TIMEOUT_MS)));
+  shortenWait(waitMs, millisecondsUntil(now, lastBatteryUpdateAt + BATTERY_UPDATE_INTERVAL_MS));
+  return waitMs;
+}
+
+void blockUntilNextWork(uint32_t now) {
+  if (!buttonInterruptAttached || hasActiveUsbSession() || Serial.available() > 0) {
+    delay(IDLE_POLL_DELAY_MS);
+    return;
+  }
+
+  uint32_t waitMs = nextLoopWaitMs(now);
+  if (waitMs == 0) {
+    taskYIELD();
+    return;
+  }
+
+  TickType_t ticks = pdMS_TO_TICKS(waitMs);
+  ulTaskNotifyTake(pdTRUE, ticks > 0 ? ticks : 1);
+}
+
 void idleSleep(uint32_t now) {
   if (RECOVERY_MODE) {
     return;
@@ -1718,9 +1817,9 @@ void idleSleep(uint32_t now) {
   }
 
   // Let the Arduino loop task block so FreeRTOS can run its tickless idle
-  // path. Calling waitForEvent() directly here leaves the loop task runnable
-  // on the Seeed core and keeps active current around 7-8 mA.
-  delay(IDLE_POLL_DELAY_MS);
+  // path. A falling-edge GPIOTE interrupt wakes it immediately on a press;
+  // while a gesture is in progress the fast polling path above stays active.
+  blockUntilNextWork(now);
 }
 
 }  // namespace
@@ -1761,6 +1860,7 @@ void setup() {
   }
 
   setupButtonInput();
+  setupButtonInterrupt();
   setupButtonGround();
   setupBatteryMeasurement();
 
