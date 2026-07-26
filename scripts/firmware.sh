@@ -19,6 +19,8 @@ EXTRA_FLAGS=""
 STAGE_FOR_BUILD=0
 USB_BUILD_PROPERTY=""
 USE_REPO_LIBRARIES=1
+REQUIRED_CORE_ID=""
+REQUIRED_CORE_VERSION=""
 
 case "$TARGET" in
   one-shot)
@@ -125,6 +127,8 @@ case "$TARGET" in
     TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_XIAO_NRF:-Super Magic Button}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_XIAO_NRF:-Huntflow}"
     EXTRA_FLAGS="-DBOARD_UICPAL_MINI_NRF52840=1 -DBUTTON_PIN_PORT=0 -DBUTTON_PIN_NUMBER=3 -DBUTTON_INTERRUPT_PIN=1 -DBUTTON_GROUND_PIN_PORT=-1 -DBUTTON_GROUND_PIN_NUMBER=-1 -DSTATUS_LED_PIN_PORT=0 -DSTATUS_LED_PIN_NUMBER=30 -DSTATUS_LED_IS_ACTIVE_LOW=1 -DSTATUS_LED_ENABLED=0 -DINITIALIZE_BUILTIN_LED=0 -DDISABLE_NFC_PINS=0 -DUSB_VBUS_DETECT_ONLY=1 -DENABLE_DCDC_REGULATOR=0 -DDCDC_BATTERY_ONLY=0 -DBATTERY_CHEMISTRY_CR2032=1"
+    REQUIRED_CORE_ID="Seeeduino:nrf52"
+    REQUIRED_CORE_VERSION="${ARDUINO_CORE_VERSION_MAGIC_BUTTON_XIAO_NRF:-1.1.8}"
     STAGE_FOR_BUILD=1
     ;;
   magic-button-xiao-power-test)
@@ -133,6 +137,8 @@ case "$TARGET" in
     TARGET_BUILD_PATH=".arduino/build-magic-button-xiao-power-test"
     TARGET_USB_PRODUCT="XIAO Power Test"
     TARGET_USB_MANUFACTURER="Huntflow"
+    REQUIRED_CORE_ID="Seeeduino:nrf52"
+    REQUIRED_CORE_VERSION="${ARDUINO_CORE_VERSION_MAGIC_BUTTON_XIAO_NRF:-1.1.8}"
     STAGE_FOR_BUILD=1
     USE_REPO_LIBRARIES=0
     ;;
@@ -231,6 +237,24 @@ case "$TARGET" in
     exit 1
     ;;
 esac
+
+if [ -n "$REQUIRED_CORE_ID" ]; then
+  INSTALLED_CORE_VERSION=$(
+    arduino-cli core list --config-file "$ROOT_DIR/arduino-cli.yaml" |
+      awk -v core_id="$REQUIRED_CORE_ID" '$1 == core_id { print $2; exit }'
+  )
+  if [ "$INSTALLED_CORE_VERSION" != "$REQUIRED_CORE_VERSION" ]; then
+    echo "Required Arduino core: ${REQUIRED_CORE_ID}@${REQUIRED_CORE_VERSION}" >&2
+    if [ -n "$INSTALLED_CORE_VERSION" ]; then
+      echo "Installed version: ${INSTALLED_CORE_VERSION}" >&2
+    else
+      echo "The core is not installed." >&2
+    fi
+    echo "Install it with:" >&2
+    echo "  arduino-cli core install ${REQUIRED_CORE_ID}@${REQUIRED_CORE_VERSION} --config-file arduino-cli.yaml" >&2
+    exit 1
+  fi
+fi
 
 TARGET_SKETCH="$ROOT_DIR/${TARGET_SKETCH_PATH}"
 TARGET_BUILD="$ROOT_DIR/${TARGET_BUILD_PATH}"

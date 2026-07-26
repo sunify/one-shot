@@ -78,10 +78,15 @@ npm run firmware:upload:magic
 
 ```bash
 arduino-cli core update-index --config-file arduino-cli.yaml
-arduino-cli core install Seeeduino:nrf52 --config-file arduino-cli.yaml
+arduino-cli core install Seeeduino:nrf52@1.1.8 --config-file arduino-cli.yaml
 npm run firmware:compile:magic:xiao
 npm run firmware:upload:magic:xiao
 ```
+
+Версия `Seeeduino:nrf52@1.1.8` закреплена намеренно: более новые версии
+показали существенно большее потребление на UICPal MINI. Сборочный скрипт
+проверяет установленную версию и останавливается с инструкцией, если она
+отличается.
 
 Если serial-порт не появляется, дважды быстро нажмите Reset для входа в UF2 bootloader.
 
