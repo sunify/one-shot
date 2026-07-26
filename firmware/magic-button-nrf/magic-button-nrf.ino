@@ -112,7 +112,8 @@ const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
 const uint16_t DEBOUNCE_TIME = 10;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
-const uint32_t DEEP_SLEEP_TIMEOUT_MS = 30000;
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 4UL * 60UL * 60UL * 1000UL;
+const uint32_t DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS = 2UL * 60UL * 60UL * 1000UL;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint16_t IDLE_POLL_DELAY_MS = 20;
 const uint32_t MAX_IDLE_BLOCK_MS = 1000;
@@ -140,7 +141,7 @@ const uint16_t BLE_CONN_INTERVAL_MIN = 9;
 const uint16_t BLE_CONN_INTERVAL_MAX = 12;
 const uint16_t BLE_CONN_SLAVE_LATENCY = 0;
 const uint16_t BLE_CONN_SUPERVISION_TIMEOUT = 400;
-const int8_t BLE_TX_POWER_FAST_DBM = 0;
+const int8_t BLE_TX_POWER_FAST_DBM = -8;
 const uint16_t BLE_IDLE_CONN_INTERVAL_MIN = 12;
 const uint16_t BLE_IDLE_CONN_INTERVAL_MAX = 12;
 const uint16_t BLE_IDLE_CONN_SLAVE_LATENCY = 15;
@@ -1145,6 +1146,12 @@ bool hasActiveBleConnection() {
   return false;
 }
 
+uint32_t currentDeepSleepTimeoutMs() {
+  return hasActiveBleConnection()
+      ? DEEP_SLEEP_TIMEOUT_MS
+      : DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS;
+}
+
 bool hasSecuredBleConnection() {
   for (uint16_t connHandle = 0; connHandle < BLE_MAX_CONNECTION; connHandle++) {
     BLEConnection *connection = Bluefruit.Connection(connHandle);
@@ -1804,7 +1811,7 @@ uint32_t nextLoopWaitMs(uint32_t now) {
       waitMs,
       millisecondsUntil(
           now,
-          lastActivityAt + (sleeping ? DEEP_SLEEP_TIMEOUT_MS : IDLE_SLEEP_TIMEOUT_MS)));
+          lastActivityAt + (sleeping ? currentDeepSleepTimeoutMs() : IDLE_SLEEP_TIMEOUT_MS)));
   shortenWait(waitMs, millisecondsUntil(now, lastBatteryUpdateAt + BATTERY_UPDATE_INTERVAL_MS));
   return waitMs;
 }
@@ -1838,7 +1845,7 @@ void idleSleep(uint32_t now) {
   if (sleeping &&
       !hasActiveUsbSession() &&
       pendingGestureCode == 0 &&
-      now - lastActivityAt >= DEEP_SLEEP_TIMEOUT_MS) {
+      now - lastActivityAt >= currentDeepSleepTimeoutMs()) {
     enterSystemOff();
     return;
   }
