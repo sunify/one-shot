@@ -101,6 +101,9 @@ const uint8_t wch_usbhid_VendorReportDescr[] = {
     0x95, 0x3F,       //   Report Count (63)
     0x09, 0x01,       //   Usage (Vendor 1)
     0xB1, 0x02,       //   Feature (Data,Var,Abs)
+    0x95, 0x3F,       //   Report Count (63)
+    0x09, 0x02,       //   Usage (Vendor 2)
+    0x81, 0x02,       //   Input (Data,Var,Abs)
     0xC0              // End Collection
 };
 

@@ -237,9 +237,24 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
     }
   }
 
+  function handleHidInputReport(event) {
+    if (event.device !== hidDevice.value) {
+      return
+    }
+
+    const parsed = parseFrames(dataViewToUint8Array(event.data))
+    for (const frame of parsed.frames) {
+      if (frame.command === COMMANDS.buttonEvent && frame.payload.length > 0) {
+        isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
+      }
+    }
+  }
+
   async function disconnect(options = {}) {
     const { preserveStatus = false } = options
     pendingResolver.value = null
+    hidDevice.value?.removeEventListener('inputreport', handleHidInputReport)
+    isDevicePressed.value = false
 
     try {
       await reader.value?.cancel()
@@ -299,9 +314,15 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
               return
             }
 
+            const response = dataViewToUint8Array(event.data)
+            const parsed = parseFrames(response)
+            if (!parsed.frames.some((frame) => expected.includes(frame.command))) {
+              return
+            }
+
             window.clearTimeout(timeoutId)
             hidDevice.value?.removeEventListener('inputreport', handleInputReport)
-            resolve(dataViewToUint8Array(event.data))
+            resolve(response)
           }
 
           hidDevice.value.addEventListener('inputreport', handleInputReport)
@@ -534,6 +555,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
             transport.value = null
           } else {
             console.debug('[webhid] mode', hidMode.value)
+            hidDevice.value.addEventListener('inputreport', handleHidInputReport)
           }
           if (!hidMode.value) {
             // Continue to WebSerial selection below.
@@ -574,7 +596,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
       isConnected.value = true
       await refreshConfig()
     } catch (error) {
-      if (port.value) {
+      if (port.value || hidDevice.value) {
         await disconnect({ preserveStatus: true })
       }
       statusText.value = normalizeSerialError(error)

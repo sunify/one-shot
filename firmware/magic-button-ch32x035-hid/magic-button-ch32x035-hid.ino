@@ -234,6 +234,24 @@ void setStatusResponse(uint8_t command, uint8_t status) {
   setFeatureResponse(command, payload, sizeof(payload));
 }
 
+void sendButtonEventReport(uint8_t state) {
+  constexpr uint8_t payloadLen = 1;
+  uint8_t frame[2 + 3 + payloadLen + 1] = {0};
+  frame[0] = FRAME_MAGIC_1;
+  frame[1] = FRAME_MAGIC_2;
+  frame[2] = PROTOCOL_VERSION;
+  frame[3] = CMD_BUTTON_EVENT;
+  frame[4] = payloadLen;
+  frame[5] = state;
+
+  uint8_t crc = 0;
+  for (uint8_t i = 2; i < sizeof(frame) - 1; i++) {
+    crc = crc8Update(crc, frame[i]);
+  }
+  frame[sizeof(frame) - 1] = crc;
+  USB_writeVendorInputReport(frame, sizeof(frame));
+}
+
 void setConfigResponse() {
   setFeatureResponse(CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(config));
 }
@@ -402,6 +420,8 @@ void loop() {
   }
 
   stableState = rawState;
+  sendButtonEventReport(stableState == LOW ? BUTTON_PRESSED : BUTTON_RELEASED);
+
   if (stableState == LOW) {
     if (now - lastActionAt < REARM_MS) {
       return;

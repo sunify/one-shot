@@ -79,4 +79,5 @@ extern "C" {
 uint8_t USB_featureReportAvailable(void);
 uint8_t USB_readFeatureReport(uint8_t* buffer, uint8_t max_len);
 void USB_setFeatureReportResponse(const uint8_t* buffer, uint8_t len);
+uint32_t USB_writeVendorInputReport(const uint8_t* buffer, uint32_t len);
 }
