@@ -324,9 +324,10 @@ uint32_t USB_writeVendorInputReport(const uint8_t* buf, uint32_t len) {
     }
 
     wch_hid_ep2_complete = 0;
+    memset(wch_usbhid_EP2_buffer, 0, EP1_SIZE);
     wch_usbhid_EP2_buffer[0] = 0x03;
     memcpy(wch_usbhid_EP2_buffer + 1, buf, len);
-    USBFSD->UEP2_TX_LEN = len + 1;
+    USBFSD->UEP2_TX_LEN = EP1_SIZE;
     USBFSD->UEP2_CTRL_H = (USBFSD->UEP2_CTRL_H & ~USBFS_UEP_T_RES_MASK) | USBFS_UEP_T_RES_ACK;
 
     timeout = 5000000;

@@ -238,11 +238,13 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
   }
 
   function handleHidInputReport(event) {
-    if (event.device !== hidDevice.value) {
+    const report = dataViewToUint8Array(event.data)
+
+    if (event.reportId !== 3) {
       return
     }
 
-    const parsed = parseFrames(dataViewToUint8Array(event.data))
+    const parsed = parseFrames(report)
     for (const frame of parsed.frames) {
       if (frame.command === COMMANDS.buttonEvent && frame.payload.length > 0) {
         isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
@@ -253,7 +255,9 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
   async function disconnect(options = {}) {
     const { preserveStatus = false } = options
     pendingResolver.value = null
-    hidDevice.value?.removeEventListener('inputreport', handleHidInputReport)
+    if (hidDevice.value) {
+      hidDevice.value.oninputreport = null
+    }
     isDevicePressed.value = false
 
     try {
@@ -555,7 +559,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
             transport.value = null
           } else {
             console.debug('[webhid] mode', hidMode.value)
-            hidDevice.value.addEventListener('inputreport', handleHidInputReport)
+            hidDevice.value.oninputreport = handleHidInputReport
           }
           if (!hidMode.value) {
             // Continue to WebSerial selection below.
