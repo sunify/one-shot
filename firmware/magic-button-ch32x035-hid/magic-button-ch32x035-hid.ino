@@ -73,7 +73,7 @@ constexpr uint8_t BUTTON_PIN = CH32_BUTTON_PIN;
 constexpr uint16_t DEBOUNCE_MS = 10;
 constexpr uint16_t REARM_MS = 80;
 constexpr uint16_t QUICK_TAP_MAX_PRESS_MS = 100;
-constexpr uint16_t DOUBLE_TAP_MS = 250;
+constexpr uint16_t DOUBLE_TAP_MS = 200;
 constexpr uint16_t LONG_PRESS_MS = 600;
 constexpr uint8_t CONFIG_VERSION = 6;
 constexpr uint32_t CONFIG_FLASH_ADDR = 0x0800F700;
@@ -396,7 +396,8 @@ void loop() {
   const int rawState = digitalRead(BUTTON_PIN);
   const uint32_t now = millis();
 
-  if (waitForSecondTap && stableState == HIGH && static_cast<int32_t>(now - singleTapDueAt) >= 0) {
+  if (waitForSecondTap && stableState == HIGH && rawState == HIGH &&
+      static_cast<int32_t>(now - singleTapDueAt) >= 0) {
     waitForSecondTap = false;
     sendGestureAction(config.singleTap);
     lastActionAt = now;
@@ -454,5 +455,5 @@ void loop() {
   }
 
   waitForSecondTap = true;
-  singleTapDueAt = now + DOUBLE_TAP_MS;
+  singleTapDueAt = pressedAt + DOUBLE_TAP_MS;
 }
