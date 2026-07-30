@@ -142,6 +142,17 @@ case "$TARGET" in
     STAGE_FOR_BUILD=1
     USE_REPO_LIBRARIES=0
     ;;
+  magic-button-xiao-power-floor)
+    TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_XIAO_NRF:-Seeeduino:nrf52:xiaonRF52840Sense}"
+    TARGET_SKETCH_PATH="firmware/magic-button-xiao-power-floor"
+    TARGET_BUILD_PATH=".arduino/build-magic-button-xiao-power-floor"
+    TARGET_USB_PRODUCT="XIAO Power Floor"
+    TARGET_USB_MANUFACTURER="Huntflow"
+    REQUIRED_CORE_ID="Seeeduino:nrf52"
+    REQUIRED_CORE_VERSION="${ARDUINO_CORE_VERSION_MAGIC_BUTTON_XIAO_NRF:-1.1.8}"
+    STAGE_FOR_BUILD=1
+    USE_REPO_LIBRARIES=0
+    ;;
   magic-button-ch32x035)
     TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_CH32X035:-WCH:ch32v:CH32X035_EVT}"
     TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_CH32X035:-firmware/magic-button-ch32x035-hid}"
@@ -266,6 +277,8 @@ if [ "$TARGET" = "magic-button-xiao-nrf" ]; then
   ORIGINAL_BUILD="/private/tmp/one-shot-build-magic-button-xiao-nrf"
 elif [ "$TARGET" = "magic-button-xiao-power-test" ]; then
   ORIGINAL_BUILD="/private/tmp/one-shot-build-magic-button-xiao-power-test"
+elif [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
+  ORIGINAL_BUILD="/private/tmp/one-shot-build-magic-button-xiao-power-floor"
 fi
 
 # Seeed nRF52 1.1.x does not quote source/include paths in its compiler
@@ -326,7 +339,7 @@ compile_magic_button() {
 
   if [ "$STAGE_FOR_BUILD" -eq 1 ]; then
     mkdir -p "$ORIGINAL_BUILD"
-    if [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ]; then
+    if [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
       cp -X "$TARGET_BUILD"/*.zip "$ORIGINAL_BUILD/"
       cp -X "$TARGET_BUILD"/*.hex "$ORIGINAL_BUILD/"
       cp -X "$TARGET_BUILD"/*.elf "$ORIGINAL_BUILD/"
@@ -378,7 +391,7 @@ if [ "$MODE" = "upload" ]; then
   # Filter ports by target: one-shot hides ESP boards, magic-button hides Arduino boards
   if [ "$TARGET" = "one-shot" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
-  elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ]; then
+  elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)
   fi
 
@@ -414,7 +427,7 @@ if [ "$MODE" = "upload" ]; then
     echo "Using port: $TARGET_PORT"
   fi
 
-  if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ]; then
+  if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
     compile_magic_button
   else
     compile_one_shot
@@ -430,7 +443,7 @@ if [ "$MODE" = "upload" ]; then
   exit 0
 fi
 
-if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-ch32x035" ]; then
+if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ] || [ "$TARGET" = "magic-button-ch32x035" ]; then
   compile_magic_button "${EXPORT_FLAG}"
 else
   compile_one_shot "${EXPORT_FLAG}"
