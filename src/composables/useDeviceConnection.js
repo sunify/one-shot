@@ -9,7 +9,9 @@ import {
   buildFrame,
   decodeConfig,
   decodeDeviceInfo,
+  decodeDeviceOptions,
   encodeConfig,
+  encodeDeviceOptions,
   parseFrames,
 } from '../protocol'
 
@@ -114,7 +116,15 @@ function normalizeSerialError(error) {
   return message || 'Не удалось подключить устройство'
 }
 
-export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, form, isDevicePressed }) {
+export function useDeviceConnection({
+  applyConfig,
+  applyDeviceInfo,
+  applyDeviceOptions,
+  deviceType,
+  form,
+  isDevicePressed,
+  supportsTurboMode,
+}) {
   const port = ref(null)
   const reader = ref(null)
   const writer = ref(null)
@@ -451,6 +461,24 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
     })
   }
 
+  async function refreshDeviceOptions() {
+    if (!supportsTurboMode.value) {
+      applyDeviceOptions({ turboMode: false })
+      return
+    }
+
+    const frame = await sendCommand(
+      COMMANDS.getDeviceOptions,
+      new Uint8Array(),
+      [COMMANDS.deviceOptions, COMMANDS.error],
+    )
+    if (frame.command === COMMANDS.error) {
+      throw new Error(`Устройство не вернуло дополнительные настройки: ${frame.payload[0]}`)
+    }
+
+    applyDeviceOptions(decodeDeviceOptions(frame.payload))
+  }
+
   async function verifyDevice() {
     let frame
 
@@ -569,8 +597,9 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
           statusText.value = ''
           await verifyDevice()
           await fetchDeviceInfo()
-          isConnected.value = true
           await refreshConfig()
+          await refreshDeviceOptions()
+          isConnected.value = true
           return
           }
         }
@@ -597,8 +626,9 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
       void readLoop()
       await verifyDevice()
       await fetchDeviceInfo()
-      isConnected.value = true
       await refreshConfig()
+      await refreshDeviceOptions()
+      isConnected.value = true
     } catch (error) {
       if (port.value || hidDevice.value) {
         await disconnect({ preserveStatus: true })
@@ -618,6 +648,17 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
         throw new Error(`Не удалось сохранить конфигурацию: ${frame.payload[0]}`)
       }
 
+      if (supportsTurboMode.value) {
+        const optionsFrame = await sendCommand(
+          COMMANDS.setDeviceOptions,
+          encodeDeviceOptions(form),
+          [COMMANDS.ack, COMMANDS.error],
+        )
+        if (optionsFrame.command === COMMANDS.error || optionsFrame.payload[0] !== STATUS.ok) {
+          throw new Error(`Не удалось сохранить режим кнопки: ${optionsFrame.payload[0]}`)
+        }
+      }
+
       statusText.value = 'Сохранено'
     })
   }
@@ -634,6 +675,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
       }
 
       applyConfig(decodeConfig(frame.payload))
+      await refreshDeviceOptions()
     })
   }
 
