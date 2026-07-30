@@ -112,8 +112,9 @@ const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
 const uint16_t DEBOUNCE_TIME = 10;
 const uint16_t REPORT_DELAY_MS = 12;
 const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
-const uint32_t DEEP_SLEEP_TIMEOUT_MS = 4UL * 60UL * 60UL * 1000UL;
-const uint32_t DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS = 30UL * 60UL * 1000UL;
+// Temporary short timeout for the isolated XIAO variant GPIO experiment.
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 40UL * 1000UL;
+const uint32_t DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS = 40UL * 1000UL;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint16_t IDLE_POLL_DELAY_MS = 20;
 const uint32_t MAX_IDLE_BLOCK_MS = 1000;
@@ -439,6 +440,23 @@ void setupButtonGround() {
 #if defined(USE_RAW_BUTTON_GROUND_GPIO)
   nrf_gpio_cfg_output(BUTTON_GROUND_GPIO);
   nrf_gpio_pin_clear(BUTTON_GROUND_GPIO);
+#endif
+}
+
+void neutralizeXiaoOnlyControlPinsForClone() {
+#if defined(BOARD_UICPAL_MINI_NRF52840)
+  // Seeed's initVariant() drives these pins for the original XIAO battery
+  // divider, charger and LEDs before setup(). They are not used by UICPal.
+  static const uint32_t xiaoOnlyPins[] = {
+      NRF_GPIO_PIN_MAP(0, 14),
+      NRF_GPIO_PIN_MAP(0, 13),
+      NRF_GPIO_PIN_MAP(0, 26),
+      NRF_GPIO_PIN_MAP(0, 6),
+      NRF_GPIO_PIN_MAP(0, 30),
+  };
+  for (uint32_t pin : xiaoOnlyPins) {
+    nrf_gpio_cfg_default(pin);
+  }
 #endif
 }
 
@@ -1696,6 +1714,7 @@ void enterSystemOff() {
   delay(10);
   putUnusedExternalFlashInDeepPowerDown();
   prepareBatteryPinsForSystemOff();
+  neutralizeXiaoOnlyControlPinsForClone();
 
   uint8_t softDeviceEnabled = 0;
   (void) sd_softdevice_is_enabled(&softDeviceEnabled);
@@ -1918,6 +1937,7 @@ void setup() {
   setupButtonInterrupt();
   setupButtonGround();
   setupBatteryMeasurement();
+  neutralizeXiaoOnlyControlPinsForClone();
 
   setupStorage();
   loadConfig();
