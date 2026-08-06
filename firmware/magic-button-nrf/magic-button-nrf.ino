@@ -134,7 +134,7 @@ const uint16_t IDLE_POLL_DELAY_MS = 20;
 const uint32_t MAX_IDLE_BLOCK_MS = 15UL * 1000UL;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
-const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
+const uint8_t BATTERY_PERCENT_HYSTERESIS = 1;
 const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
 const int16_t BATTERY_CALIBRATION_OFFSET_MV = 0;
 #if BATTERY_MEASURE_INTERNAL_VDD
@@ -585,8 +585,8 @@ uint16_t readBatteryAdcMillivolts() {
 
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Disabled << SAADC_ENABLE_ENABLE_Pos);
   uint32_t rawAverage = static_cast<uint32_t>(rawSum / BATTERY_SAMPLE_COUNT);
-  uint32_t adcMillivolts = (rawAverage * BATTERY_ADC_FULL_SCALE_MV) / 4095;
-  uint32_t batteryMv = adcMillivolts * BATTERY_ADC_DIVIDER_MULTIPLIER;
+  uint32_t batteryMv =
+      (rawAverage * BATTERY_ADC_FULL_SCALE_MV * BATTERY_ADC_DIVIDER_MULTIPLIER) / 4095;
   return static_cast<uint16_t>(batteryMv + BATTERY_CALIBRATION_OFFSET_MV);
 #else
   return batteryMillivolts;
