@@ -6,7 +6,6 @@
 #include <task.h>
 #include "nrf_gpio.h"
 #include "nrf_power.h"
-#include "nrfx_qspi.h"
 #include "device_protocol.h"
 
 using namespace Adafruit_LittleFS_Namespace;
@@ -58,19 +57,6 @@ const uint32_t BUTTON_GROUND_GPIO = NRF_GPIO_PIN_MAP(BUTTON_GROUND_PIN_PORT, BUT
 // removed on this board, so hold the enable gate deterministically low.
 const uint32_t SUPERMINI_VCC_CUTOFF_GPIO = NRF_GPIO_PIN_MAP(0, 13);
 
-#ifndef BATTERY_ENABLE_PIN_PORT
-#define BATTERY_ENABLE_PIN_PORT -1
-#endif
-
-#ifndef BATTERY_ENABLE_PIN_NUMBER
-#define BATTERY_ENABLE_PIN_NUMBER -1
-#endif
-
-#if BATTERY_ENABLE_PIN_PORT >= 0 && BATTERY_ENABLE_PIN_NUMBER >= 0
-const uint32_t BATTERY_ENABLE_GPIO = NRF_GPIO_PIN_MAP(BATTERY_ENABLE_PIN_PORT, BATTERY_ENABLE_PIN_NUMBER);
-#define USE_BATTERY_ENABLE_GPIO 1
-#endif
-
 #ifndef STATUS_LED_PIN_PORT
 #define STATUS_LED_PIN_PORT 0
 #endif
@@ -107,18 +93,6 @@ const uint32_t BATTERY_ENABLE_GPIO = NRF_GPIO_PIN_MAP(BATTERY_ENABLE_PIN_PORT, B
 #define DCDC_BATTERY_ONLY 0
 #endif
 
-#ifndef BATTERY_MEASURE_INTERNAL_VDD
-#if defined(BOARD_UICPAL_MINI_NRF52840) || defined(USE_BATTERY_ENABLE_GPIO)
-#define BATTERY_MEASURE_INTERNAL_VDD 0
-#else
-#define BATTERY_MEASURE_INTERNAL_VDD 1
-#endif
-#endif
-
-#ifndef BATTERY_CHEMISTRY_CR2032
-#define BATTERY_CHEMISTRY_CR2032 BATTERY_MEASURE_INTERNAL_VDD
-#endif
-
 const uint8_t CONFIG_VERSION = 1;
 const uint16_t MULTI_TAP_TIMEOUT = 250;
 const uint16_t QUICK_TAP_MAX_PRESS = 100;
@@ -136,27 +110,11 @@ const uint32_t MAX_IDLE_BLOCK_MS = 15UL * 1000UL;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 16;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 1;
-const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
 const int16_t BATTERY_CALIBRATION_OFFSET_MV = 200;
-#if BATTERY_MEASURE_INTERNAL_VDD
 // On the modified SuperMini, B+, VDDH and VDD are tied together. The SAADC can
 // sample VDD directly, so no always-on external divider is required.
 const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_VDD;
-const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 1;
 const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3600;
-#elif defined(BOARD_UICPAL_MINI_NRF52840)
-// The UICPal MINI has no usable onboard BAT measurement path. Use an external
-// 1M/1M divider with its midpoint connected to D0 (P0.02/AIN0).
-const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 2);
-const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput0;
-const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
-const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
-#else
-const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 31);
-const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput7;
-const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
-const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
-#endif
 const bool IDLE_USES_SYSTEM_OFF = false;
 const uint16_t BLE_ADVERTISING_INTERVAL_FAST = 32;
 const uint16_t BLE_ADVERTISING_INTERVAL_SLOW = 160;
@@ -492,48 +450,8 @@ void holdSuperMiniExternalVccOff() {
   nrf_gpio_cfg_output(SUPERMINI_VCC_CUTOFF_GPIO);
 }
 
-void setupBatteryMeasurement() {
-#if defined(USE_BATTERY_ENABLE_GPIO)
-  // XIAO nRF52840 uses an active-low switch for its battery divider.
-  // Keep it enabled while the firmware may sample P0.31. Sink-only prevents
-  // accidentally driving this battery-connected node high.
-  nrf_gpio_cfg(
-      BATTERY_ENABLE_GPIO,
-      NRF_GPIO_PIN_DIR_OUTPUT,
-      NRF_GPIO_PIN_INPUT_DISCONNECT,
-      NRF_GPIO_PIN_NOPULL,
-      NRF_GPIO_PIN_S0D1,
-      NRF_GPIO_PIN_NOSENSE);
-  nrf_gpio_pin_clear(BATTERY_ENABLE_GPIO);
-#endif
-}
-
-void prepareBatteryPinsForSystemOff() {
-#if defined(BOARD_UICPAL_MINI_NRF52840)
-  // Leave the external divider's ADC input buffer disconnected after sampling.
-  nrf_gpio_cfg(
-      BATTERY_ADC_GPIO,
-      NRF_GPIO_PIN_DIR_INPUT,
-      NRF_GPIO_PIN_INPUT_DISCONNECT,
-      NRF_GPIO_PIN_NOPULL,
-      NRF_GPIO_PIN_S0S1,
-      NRF_GPIO_PIN_NOSENSE);
-#endif
-}
-
 uint16_t readBatteryAdcMillivolts() {
 #if defined(NRF_SAADC)
-  setupBatteryMeasurement();
-#if !BATTERY_MEASURE_INTERNAL_VDD
-  nrf_gpio_cfg(
-      BATTERY_ADC_GPIO,
-      NRF_GPIO_PIN_DIR_INPUT,
-      NRF_GPIO_PIN_INPUT_DISCONNECT,
-      NRF_GPIO_PIN_NOPULL,
-      NRF_GPIO_PIN_S0S1,
-      NRF_GPIO_PIN_NOSENSE);
-#endif
-
   volatile int16_t raw = 0;
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Enabled << SAADC_ENABLE_ENABLE_Pos);
   NRF_SAADC->RESOLUTION = SAADC_RESOLUTION_VAL_12bit;
@@ -547,11 +465,7 @@ uint16_t readBatteryAdcMillivolts() {
   NRF_SAADC->CH[0].CONFIG =
       ((SAADC_CH_CONFIG_RESP_Bypass << SAADC_CH_CONFIG_RESP_Pos) & SAADC_CH_CONFIG_RESP_Msk) |
       ((SAADC_CH_CONFIG_RESN_Bypass << SAADC_CH_CONFIG_RESN_Pos) & SAADC_CH_CONFIG_RESN_Msk) |
-#if BATTERY_MEASURE_INTERNAL_VDD
       ((SAADC_CH_CONFIG_GAIN_Gain1_6 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
-#else
-      ((SAADC_CH_CONFIG_GAIN_Gain1_5 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
-#endif
       ((SAADC_CH_CONFIG_REFSEL_Internal << SAADC_CH_CONFIG_REFSEL_Pos) & SAADC_CH_CONFIG_REFSEL_Msk) |
       ((SAADC_CH_CONFIG_TACQ_40us << SAADC_CH_CONFIG_TACQ_Pos) & SAADC_CH_CONFIG_TACQ_Msk) |
       ((SAADC_CH_CONFIG_MODE_SE << SAADC_CH_CONFIG_MODE_Pos) & SAADC_CH_CONFIG_MODE_Msk) |
@@ -601,8 +515,7 @@ uint16_t readBatteryAdcMillivolts() {
 
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Disabled << SAADC_ENABLE_ENABLE_Pos);
   uint32_t rawAverage = static_cast<uint32_t>(rawSum / BATTERY_SAMPLE_COUNT);
-  uint32_t batteryMv =
-      (rawAverage * BATTERY_ADC_FULL_SCALE_MV * BATTERY_ADC_DIVIDER_MULTIPLIER) / 4095;
+  uint32_t batteryMv = (rawAverage * BATTERY_ADC_FULL_SCALE_MV) / 4095;
   return static_cast<uint16_t>(batteryMv + BATTERY_CALIBRATION_OFFSET_MV);
 #else
   return batteryMillivolts;
@@ -619,7 +532,6 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
     uint8_t percent;
   };
 
-#if BATTERY_CHEMISTRY_CR2032
   static const BatteryPoint curve[] = {
       {3050, 100},
       {3000, 90},
@@ -631,24 +543,6 @@ uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
       {2600, 5},
       {2500, 0},
   };
-#else
-  static const BatteryPoint curve[] = {
-      {4130, 100},
-      {4100, 96},
-      {4050, 88},
-      {4000, 78},
-      {3950, 68},
-      {3900, 58},
-      {3850, 45},
-      {3800, 35},
-      {3750, 26},
-      {3700, 18},
-      {3650, 12},
-      {3600, 8},
-      {3550, 4},
-      {3500, 0},
-  };
-#endif
 
   if (millivolts >= curve[0].millivolts) {
     return curve[0].percent;
@@ -679,46 +573,17 @@ void updateBatteryLevel(bool forceNotify = false) {
   uint8_t previousLevel = batteryLevel;
 
   batteryMillivolts = newMillivolts;
-  if (usbVbusActive && batteryInitialized && !BATTERY_CHEMISTRY_CR2032) {
-    uint8_t measuredLevel = batteryPercentFromMillivolts(newMillivolts);
-    if (measuredLevel < batteryLevel) {
-      int delta = static_cast<int>(batteryLevel) - static_cast<int>(measuredLevel);
-      if (delta >= BATTERY_PERCENT_HYSTERESIS) {
-        batteryLevel = measuredLevel;
-      }
-    } else if (measuredLevel > batteryLevel) {
-      uint8_t nextLevel = batteryLevel + BATTERY_USB_CHARGE_STEP_PERCENT;
-      batteryLevel = nextLevel > measuredLevel ? measuredLevel : nextLevel;
-    }
-    batteryService.write(batteryLevel);
-    if (forceNotify || batteryLevel != previousLevel) {
-      batteryService.notify(batteryLevel);
-    }
-    return;
-  }
-
   uint8_t measuredLevel = batteryPercentFromMillivolts(newMillivolts);
   if (!batteryInitialized) {
     batteryLevel = measuredLevel;
     batteryInitialized = true;
   } else {
-#if BATTERY_CHEMISTRY_CR2032
     // A primary CR2032 cannot charge in this device. Ignore upward SAADC noise
     // so the user-facing level never jumps from 81% back to 100%.
     if (measuredLevel < batteryLevel &&
         batteryLevel - measuredLevel >= BATTERY_PERCENT_HYSTERESIS) {
       batteryLevel = measuredLevel;
     }
-#else
-    int delta = static_cast<int>(measuredLevel) - static_cast<int>(batteryLevel);
-    if (delta < 0) {
-      delta = -delta;
-    }
-
-    if (delta >= BATTERY_PERCENT_HYSTERESIS) {
-      batteryLevel = measuredLevel;
-    }
-#endif
   }
 
   batteryService.write(batteryLevel);
@@ -847,70 +712,6 @@ void configureDcdcForPowerSource(bool vbusPresent) {
   // penalty in this mode (errata 197), so explicitly force its LDO path.
   sd_power_dcdc0_mode_set(NRF_POWER_DCDC_DISABLE);
 #endif
-#endif
-}
-
-void putUnusedExternalFlashInDeepPowerDown() {
-#if defined(BOARD_UICPAL_MINI_NRF52840)
-  const uint8_t sck = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_SCK]);
-  const uint8_t cs = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_CS]);
-  const uint8_t io0 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO0]);
-  const uint8_t io1 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO1]);
-  const uint8_t io2 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO2]);
-  const uint8_t io3 = static_cast<uint8_t>(g_ADigitalPinMap[PIN_QSPI_IO3]);
-  const nrfx_qspi_config_t qspiConfig = {
-      .xip_offset = 0,
-      .pins = {
-          .sck_pin = sck,
-          .csn_pin = cs,
-          .io0_pin = io0,
-          .io1_pin = io1,
-          .io2_pin = io2,
-          .io3_pin = io3,
-      },
-      .prot_if = {
-          .readoc = NRF_QSPI_READOC_READ4O,
-          .writeoc = NRF_QSPI_WRITEOC_PP4O,
-          .addrmode = NRF_QSPI_ADDRMODE_24BIT,
-          .dpmconfig = false,
-      },
-      .phy_if = {
-          .sck_delay = 10,
-          .dpmen = false,
-          .spi_mode = NRF_QSPI_MODE_0,
-          .sck_freq = NRF_QSPI_FREQ_32MDIV16,
-      },
-      .irq_priority = 7,
-  };
-
-  if (nrfx_qspi_init(&qspiConfig, nullptr, nullptr) == NRFX_SUCCESS) {
-    const nrf_qspi_cinstr_conf_t command = {
-        .opcode = 0xB9,
-        .length = NRF_QSPI_CINSTR_LEN_1B,
-        .io2_level = true,
-        .io3_level = true,
-        .wipwait = false,
-        .wren = false,
-    };
-    (void) nrfx_qspi_cinstr_xfer(&command, nullptr, nullptr);
-    delayMicroseconds(10);
-    nrfx_qspi_uninit();
-  }
-
-  // P25Q16H specifies its deep-power-down current with every input held at a
-  // CMOS level. Keep CS high and avoid floating QSPI inputs in System OFF.
-  nrf_gpio_cfg_output(sck);
-  nrf_gpio_pin_clear(sck);
-  nrf_gpio_cfg_output(cs);
-  nrf_gpio_pin_set(cs);
-  nrf_gpio_cfg_output(io0);
-  nrf_gpio_pin_clear(io0);
-  nrf_gpio_cfg_output(io1);
-  nrf_gpio_pin_clear(io1);
-  nrf_gpio_cfg_output(io2);
-  nrf_gpio_pin_set(io2);
-  nrf_gpio_cfg_output(io3);
-  nrf_gpio_pin_set(io3);
 #endif
 }
 
@@ -1628,14 +1429,9 @@ void setupUsbHid() {
     return;
   }
 
-#if defined(BOARD_UICPAL_MINI_NRF52840) || defined(ARDUINO_Seeed_XIAO_nRF52840_Sense)
-  // Seeed's bundled TinyUSB is initialized by the core before setup() and
-  // predates isInitialized().
-#else
   if (!TinyUSBDevice.isInitialized()) {
     TinyUSBDevice.begin(0);
   }
-#endif
 
   usbHid.setPollInterval(2);
   usbHid.setReportDescriptor(USB_HID_REPORT_DESCRIPTOR, sizeof(USB_HID_REPORT_DESCRIPTOR));
@@ -1809,9 +1605,6 @@ void enterSystemOff() {
   delay(30);
   Bluefruit.Advertising.stop();
   delay(10);
-  putUnusedExternalFlashInDeepPowerDown();
-  prepareBatteryPinsForSystemOff();
-
   uint8_t softDeviceEnabled = 0;
   (void) sd_softdevice_is_enabled(&softDeviceEnabled);
 
@@ -2033,8 +1826,6 @@ void setup() {
   setupButtonInput();
   setupButtonInterrupt();
   setupButtonGround();
-  setupBatteryMeasurement();
-
   setupStorage();
   loadConfig();
   lastVbusPresent = isRawVbusPresent();
@@ -2067,11 +1858,7 @@ void setup() {
     Serial.print(".");
     Serial.println(BUTTON_PIN_NUMBER);
 #endif
-#if BATTERY_MEASURE_INTERNAL_VDD
     Serial.println("battery source: VDD");
-#else
-    Serial.println("battery source: external divider");
-#endif
   }
 }
 

@@ -72,24 +72,6 @@ npm run firmware:export:magic
 npm run firmware:upload:magic
 ```
 
-### UICPal MINI nRF52840
-
-Для BLE/USB-версии на UICPal MINI nRF52840 в форм-факторе XIAO используется отдельный target. Кнопка подключается между `D1` (`P0.03`) и `GND`.
-
-```bash
-arduino-cli core update-index --config-file arduino-cli.yaml
-arduino-cli core install Seeeduino:nrf52@1.1.8 --config-file arduino-cli.yaml
-npm run firmware:compile:magic:xiao
-npm run firmware:upload:magic:xiao
-```
-
-Версия `Seeeduino:nrf52@1.1.8` закреплена намеренно: более новые версии
-показали существенно большее потребление на UICPal MINI. Сборочный скрипт
-проверяет установленную версию и останавливается с инструкцией, если она
-отличается.
-
-Если serial-порт не появляется, дважды быстро нажмите Reset для входа в UF2 bootloader.
-
 Прошивка также публикует BLE-сервис конфигурации на базе Nordic UART Service.
 В Chromium-конфигураторе выберите «Подключить по Bluetooth» и затем
 `Super Magic Button`. USB и BLE используют одинаковые кадры протокола, поэтому

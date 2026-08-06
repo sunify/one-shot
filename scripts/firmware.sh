@@ -16,11 +16,7 @@ TARGET="${2:-one-shot}"
 PROFILE="${3:-}"
 EXPORT_FLAG=""
 EXTRA_FLAGS=""
-STAGE_FOR_BUILD=0
 USB_BUILD_PROPERTY=""
-USE_REPO_LIBRARIES=1
-REQUIRED_CORE_ID=""
-REQUIRED_CORE_VERSION=""
 
 case "$TARGET" in
   one-shot)
@@ -120,39 +116,6 @@ case "$TARGET" in
     TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_NRF:-Super Magic Button}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_NRF:-Huntflow}"
     ;;
-  magic-button-xiao-nrf)
-    TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_XIAO_NRF:-Seeeduino:nrf52:xiaonRF52840}"
-    TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_XIAO_NRF:-firmware/magic-button-nrf}"
-    TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_MAGIC_BUTTON_XIAO_NRF:-.arduino/build-magic-button-xiao-nrf}"
-    TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_XIAO_NRF:-Super Magic Button}"
-    TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_XIAO_NRF:-Huntflow}"
-    EXTRA_FLAGS="-DBOARD_UICPAL_MINI_NRF52840=1 -DBUTTON_PIN_PORT=0 -DBUTTON_PIN_NUMBER=3 -DBUTTON_INTERRUPT_PIN=1 -DBUTTON_GROUND_PIN_PORT=-1 -DBUTTON_GROUND_PIN_NUMBER=-1 -DSTATUS_LED_PIN_PORT=0 -DSTATUS_LED_PIN_NUMBER=30 -DSTATUS_LED_IS_ACTIVE_LOW=1 -DSTATUS_LED_ENABLED=0 -DINITIALIZE_BUILTIN_LED=0 -DDISABLE_NFC_PINS=0 -DUSB_VBUS_DETECT_ONLY=1 -DENABLE_DCDC_REGULATOR=0 -DDCDC_BATTERY_ONLY=0 -DBATTERY_CHEMISTRY_CR2032=1"
-    REQUIRED_CORE_ID="Seeeduino:nrf52"
-    REQUIRED_CORE_VERSION="${ARDUINO_CORE_VERSION_MAGIC_BUTTON_XIAO_NRF:-1.1.8}"
-    STAGE_FOR_BUILD=1
-    ;;
-  magic-button-xiao-power-test)
-    TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_XIAO_NRF:-Seeeduino:nrf52:xiaonRF52840Sense}"
-    TARGET_SKETCH_PATH="firmware/magic-button-xiao-power-test"
-    TARGET_BUILD_PATH=".arduino/build-magic-button-xiao-power-test"
-    TARGET_USB_PRODUCT="XIAO Power Test"
-    TARGET_USB_MANUFACTURER="Huntflow"
-    REQUIRED_CORE_ID="Seeeduino:nrf52"
-    REQUIRED_CORE_VERSION="${ARDUINO_CORE_VERSION_MAGIC_BUTTON_XIAO_NRF:-1.1.8}"
-    STAGE_FOR_BUILD=1
-    USE_REPO_LIBRARIES=0
-    ;;
-  magic-button-xiao-power-floor)
-    TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_XIAO_NRF:-Seeeduino:nrf52:xiaonRF52840Sense}"
-    TARGET_SKETCH_PATH="firmware/magic-button-xiao-power-floor"
-    TARGET_BUILD_PATH=".arduino/build-magic-button-xiao-power-floor"
-    TARGET_USB_PRODUCT="XIAO Power Floor"
-    TARGET_USB_MANUFACTURER="Huntflow"
-    REQUIRED_CORE_ID="Seeeduino:nrf52"
-    REQUIRED_CORE_VERSION="${ARDUINO_CORE_VERSION_MAGIC_BUTTON_XIAO_NRF:-1.1.8}"
-    STAGE_FOR_BUILD=1
-    USE_REPO_LIBRARIES=0
-    ;;
   magic-button-ch32x035)
     TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_CH32X035:-WCH:ch32v:CH32X035_EVT}"
     TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_CH32X035:-firmware/magic-button-ch32x035-hid}"
@@ -249,58 +212,9 @@ case "$TARGET" in
     ;;
 esac
 
-if [ -n "$REQUIRED_CORE_ID" ]; then
-  INSTALLED_CORE_VERSION=$(
-    arduino-cli core list --config-file "$ROOT_DIR/arduino-cli.yaml" |
-      awk -v core_id="$REQUIRED_CORE_ID" '$1 == core_id { print $2; exit }'
-  )
-  if [ "$INSTALLED_CORE_VERSION" != "$REQUIRED_CORE_VERSION" ]; then
-    echo "Required Arduino core: ${REQUIRED_CORE_ID}@${REQUIRED_CORE_VERSION}" >&2
-    if [ -n "$INSTALLED_CORE_VERSION" ]; then
-      echo "Installed version: ${INSTALLED_CORE_VERSION}" >&2
-    else
-      echo "The core is not installed." >&2
-    fi
-    echo "Install it with:" >&2
-    echo "  arduino-cli core install ${REQUIRED_CORE_ID}@${REQUIRED_CORE_VERSION} --config-file arduino-cli.yaml" >&2
-    exit 1
-  fi
-fi
-
 TARGET_SKETCH="$ROOT_DIR/${TARGET_SKETCH_PATH}"
 TARGET_BUILD="$ROOT_DIR/${TARGET_BUILD_PATH}"
 TARGET_LIBRARIES="$ROOT_DIR/libraries"
-ORIGINAL_SKETCH="$TARGET_SKETCH"
-ORIGINAL_BUILD="$TARGET_BUILD"
-
-if [ "$TARGET" = "magic-button-xiao-nrf" ]; then
-  ORIGINAL_BUILD="/private/tmp/one-shot-build-magic-button-xiao-nrf"
-elif [ "$TARGET" = "magic-button-xiao-power-test" ]; then
-  ORIGINAL_BUILD="/private/tmp/one-shot-build-magic-button-xiao-power-test"
-elif [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
-  ORIGINAL_BUILD="/private/tmp/one-shot-build-magic-button-xiao-power-floor"
-fi
-
-# Seeed nRF52 1.1.x does not quote source/include paths in its compiler
-# recipes. Stage this target under /private/tmp so projects inside paths such
-# as "Mobile Documents" still build reliably.
-if [ "$STAGE_FOR_BUILD" -eq 1 ]; then
-  STAGING_DIR=$(mktemp -d /private/tmp/one-shot-xiao.XXXXXX)
-  trap 'rm -rf "$STAGING_DIR"' EXIT HUP INT TERM
-  ln -s "$ROOT_DIR/scripts/python3-shim" "$STAGING_DIR/python"
-  PATH="$STAGING_DIR:$PATH"
-  export PATH
-  STAGED_SKETCH_NAME=$(basename "$TARGET_SKETCH")
-  cp -R "$TARGET_SKETCH" "$STAGING_DIR/$STAGED_SKETCH_NAME"
-  if [ "$USE_REPO_LIBRARIES" -eq 1 ]; then
-    cp -R "$TARGET_LIBRARIES" "$STAGING_DIR/libraries"
-  else
-    mkdir -p "$STAGING_DIR/libraries"
-  fi
-  TARGET_SKETCH="$STAGING_DIR/$STAGED_SKETCH_NAME"
-  TARGET_BUILD="$STAGING_DIR/build"
-  TARGET_LIBRARIES="$STAGING_DIR/libraries"
-fi
 
 if [ "$MODE" = "export" ]; then
   EXPORT_FLAG="--export-binaries"
@@ -337,20 +251,6 @@ compile_magic_button() {
     ${EXTRA_ARGS} \
     "$TARGET_SKETCH"
 
-  if [ "$STAGE_FOR_BUILD" -eq 1 ]; then
-    mkdir -p "$ORIGINAL_BUILD"
-    if [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
-      cp -X "$TARGET_BUILD"/*.zip "$ORIGINAL_BUILD/"
-      cp -X "$TARGET_BUILD"/*.hex "$ORIGINAL_BUILD/"
-      cp -X "$TARGET_BUILD"/*.elf "$ORIGINAL_BUILD/"
-    else
-      cp -R "$TARGET_BUILD/." "$ORIGINAL_BUILD/"
-    fi
-    if [ -n "$EXPORT_FLAG" ] && [ -d "$TARGET_SKETCH/build" ]; then
-      mkdir -p "$ORIGINAL_SKETCH/build"
-      cp -R "$TARGET_SKETCH/build/." "$ORIGINAL_SKETCH/build/"
-    fi
-  fi
 }
 
 if [ "$MODE" = "upload" ]; then
@@ -391,7 +291,7 @@ if [ "$MODE" = "upload" ]; then
   # Filter ports by target: one-shot hides ESP boards, magic-button hides Arduino boards
   if [ "$TARGET" = "one-shot" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
-  elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
+  elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)
   fi
 
@@ -427,7 +327,7 @@ if [ "$MODE" = "upload" ]; then
     echo "Using port: $TARGET_PORT"
   fi
 
-  if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ]; then
+  if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
     compile_magic_button
   else
     compile_one_shot
@@ -443,7 +343,7 @@ if [ "$MODE" = "upload" ]; then
   exit 0
 fi
 
-if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-xiao-nrf" ] || [ "$TARGET" = "magic-button-xiao-power-test" ] || [ "$TARGET" = "magic-button-xiao-power-floor" ] || [ "$TARGET" = "magic-button-ch32x035" ]; then
+if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-ch32x035" ]; then
   compile_magic_button "${EXPORT_FLAG}"
 else
   compile_one_shot "${EXPORT_FLAG}"
