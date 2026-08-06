@@ -5,6 +5,7 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include "nrf_gpio.h"
+#include "nrf_nvic.h"
 #include "nrf_power.h"
 #include "device_protocol.h"
 
@@ -26,13 +27,6 @@ const bool RECOVERY_MODE = false;
 
 #ifndef BUTTON_PIN_NUMBER
 #define BUTTON_PIN_NUMBER 20
-#endif
-
-#ifndef BUTTON_INTERRUPT_PIN
-// The compact Raytac variant exposes only three Arduino pin slots. Slot 2 is
-// used to allocate a core-managed GPIOTE callback, then remapped below to the
-// actual raw button GPIO (P0.20 on the nice!nano build).
-#define BUTTON_INTERRUPT_PIN 2
 #endif
 
 #if defined(BUTTON_PIN_PORT) && defined(BUTTON_PIN_NUMBER)
@@ -141,7 +135,8 @@ const uint32_t SLEEP_DEBUG_REPEAT_MS = 2000;
 const uint32_t PENDING_GESTURE_MAX_AGE_MS = 120000;
 const uint32_t PENDING_GESTURE_RETRY_INTERVAL_MS = 200;
 const uint8_t BLE_HID_READY_STABLE_COUNT = 5;
-const uint8_t WAKE_GPIOTE_CHANNEL = 7;
+const uint8_t BUTTON_WAKE_PPI_CHANNEL = 15;
+const uint8_t BUTTON_WAKE_EGU_CHANNEL = 0;
 
 enum UsbHidReportId : uint8_t {
   USB_REPORT_ID_KEYBOARD = 1,
@@ -247,6 +242,7 @@ bool consumerNotifySubscribedThisConnection = false;
 bool batteryInitialized = false;
 TaskHandle_t loopTaskHandle = nullptr;
 bool buttonInterruptAttached = false;
+volatile bool buttonPortSenseArmed = false;
 bool bleReadySeen = false;
 bool configAdvertisingActive = false;
 uint32_t configAdvertisingUntil = 0;
@@ -323,6 +319,23 @@ void buttonPressInterrupt() {
   BaseType_t higherPriorityTaskWoken = pdFALSE;
   vTaskNotifyGiveFromISR(loopTaskHandle, &higherPriorityTaskWoken);
   portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+
+void setButtonPortSense(bool armed) {
+  uint32_t pinConfig = NRF_P0->PIN_CNF[BUTTON_PIN_NUMBER];
+  pinConfig &= ~GPIO_PIN_CNF_SENSE_Msk;
+  pinConfig |= (armed ? GPIO_PIN_CNF_SENSE_Low : GPIO_PIN_CNF_SENSE_Disabled)
+               << GPIO_PIN_CNF_SENSE_Pos;
+  NRF_P0->PIN_CNF[BUTTON_PIN_NUMBER] = pinConfig;
+  buttonPortSenseArmed = armed;
+}
+
+void buttonPortWakeInterrupt() {
+  NRF_EGU3->EVENTS_TRIGGERED[BUTTON_WAKE_EGU_CHANNEL] = 0;
+  NRF_GPIOTE->EVENTS_PORT = 0;
+  setButtonPortSense(false);
+  NRF_P0->LATCH = (1UL << BUTTON_PIN_NUMBER);
+  buttonPressInterrupt();
 }
 
 void markActivity(uint32_t now = millis()) {
@@ -404,22 +417,30 @@ void setupButtonInput() {
 }
 
 void setupButtonInterrupt() {
-#if BUTTON_INTERRUPT_PIN >= 0
   loopTaskHandle = xTaskGetCurrentTaskHandle();
-  const int interruptMask = attachInterrupt(BUTTON_INTERRUPT_PIN, buttonPressInterrupt, FALLING);
-  buttonInterruptAttached = interruptMask != 0;
+  setButtonPortSense(false);
+  NRF_P0->LATCH = (1UL << BUTTON_PIN_NUMBER);
+  NRF_GPIOTE->EVENTS_PORT = 0;
+  NRF_EGU3->EVENTS_TRIGGERED[BUTTON_WAKE_EGU_CHANNEL] = 0;
+  NRF_EGU3->INTENSET = (EGU_INTENSET_TRIGGERED0_Msk << BUTTON_WAKE_EGU_CHANNEL);
 
-#if defined(USE_RAW_BUTTON_GPIO)
-  if (buttonInterruptAttached) {
-    const uint8_t channel = static_cast<uint8_t>(__builtin_ctz(static_cast<unsigned>(interruptMask)));
-    uint32_t config = NRF_GPIOTE->CONFIG[channel];
-    config &= ~(GPIOTE_CONFIG_PSEL_Msk | GPIOTE_CONFIG_PORT_Msk);
-    config |= ((uint32_t) BUTTON_PIN_NUMBER << GPIOTE_CONFIG_PSEL_Pos) |
-              ((uint32_t) BUTTON_PIN_PORT << GPIOTE_CONFIG_PORT_Pos);
-    NRF_GPIOTE->CONFIG[channel] = config;
+  uint32_t error = sd_ppi_channel_assign(
+      BUTTON_WAKE_PPI_CHANNEL,
+      &NRF_GPIOTE->EVENTS_PORT,
+      &NRF_EGU3->TASKS_TRIGGER[BUTTON_WAKE_EGU_CHANNEL]);
+  if (error == NRF_SUCCESS) {
+    error = sd_ppi_channel_enable_set(1UL << BUTTON_WAKE_PPI_CHANNEL);
   }
-#endif
-#endif
+  if (error == NRF_SUCCESS) {
+    sd_nvic_SetPriority(SWI3_EGU3_IRQn, 3);
+    sd_nvic_ClearPendingIRQ(SWI3_EGU3_IRQn);
+    error = sd_nvic_EnableIRQ(SWI3_EGU3_IRQn);
+  }
+
+  buttonInterruptAttached = error == NRF_SUCCESS;
+  if (buttonInterruptAttached) {
+    setButtonPortSense(true);
+  }
 }
 
 int readButtonState() {
@@ -1171,6 +1192,12 @@ void updateStatusLed(uint32_t now) {
 void updateButton(uint32_t now) {
   int rawState = readButtonState();
 
+  if (buttonInterruptAttached && rawState == HIGH && !buttonPortSenseArmed) {
+    NRF_P0->LATCH = (1UL << BUTTON_PIN_NUMBER);
+    NRF_GPIOTE->EVENTS_PORT = 0;
+    setButtonPortSense(true);
+  }
+
   if (sleeping && rawState == LOW) {
     exitSleep();
   }
@@ -1486,29 +1513,20 @@ void updateUsbState() {
 void armButtonWakeSense() {
 #if defined(USE_RAW_BUTTON_GPIO)
   if (buttonInterruptAttached) {
+    setButtonPortSense(true);
     return;
   }
-  nrf_gpio_cfg_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP);
-
-  NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] =
-      ((uint32_t) GPIOTE_CONFIG_MODE_Event << GPIOTE_CONFIG_MODE_Pos) |
-      ((uint32_t) BUTTON_PIN_NUMBER << GPIOTE_CONFIG_PSEL_Pos) |
-      ((uint32_t) BUTTON_PIN_PORT << GPIOTE_CONFIG_PORT_Pos) |
-      ((uint32_t) GPIOTE_CONFIG_POLARITY_HiToLo << GPIOTE_CONFIG_POLARITY_Pos);
-  NRF_GPIOTE->EVENTS_IN[WAKE_GPIOTE_CHANNEL] = 0;
-  NRF_GPIOTE->INTENSET = (1UL << WAKE_GPIOTE_CHANNEL);
-  NVIC_EnableIRQ(GPIOTE_IRQn);
+  nrf_gpio_cfg_sense_input(BUTTON_GPIO, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
 #endif
 }
 
 void disarmButtonWakeSense() {
 #if defined(USE_RAW_BUTTON_GPIO)
   if (buttonInterruptAttached) {
+    setButtonPortSense(false);
     return;
   }
-  NRF_GPIOTE->INTENCLR = (1UL << WAKE_GPIOTE_CHANNEL);
-  NRF_GPIOTE->CONFIG[WAKE_GPIOTE_CHANNEL] = 0;
-  NRF_GPIOTE->EVENTS_IN[WAKE_GPIOTE_CHANNEL] = 0;
+  setButtonPortSense(false);
 #endif
 }
 
@@ -1594,12 +1612,10 @@ void enterSystemOff() {
     return;
   }
 #endif
-
 #if INITIALIZE_BUILTIN_LED && defined(LED_BUILTIN)
   digitalWrite(LED_BUILTIN, LOW);
 #endif
   setStatusLed(false);
-  disarmButtonWakeSense();
   holdButtonGroundLow();
   disconnectAllBleConnections();
   delay(30);
@@ -1780,12 +1796,17 @@ void idleSleep(uint32_t now) {
   }
 
   // Let the Arduino loop task block so FreeRTOS can run its tickless idle
-  // path. A falling-edge GPIOTE interrupt wakes it immediately on a press;
+  // path. GPIO SENSE routes the shared PORT event through PPI/EGU and wakes
+  // it immediately on a press without allocating a high-current GPIOTE IN channel;
   // while a gesture is in progress the fast polling path above stays active.
   blockUntilNextWork(now);
 }
 
 }  // namespace
+
+extern "C" void SWI3_EGU3_IRQHandler(void) {
+  buttonPortWakeInterrupt();
+}
 
 void disableNfcPinsIfNeeded() {
 #if DISABLE_NFC_PINS
@@ -1824,7 +1845,6 @@ void setup() {
   }
 
   setupButtonInput();
-  setupButtonInterrupt();
   setupButtonGround();
   setupStorage();
   loadConfig();
@@ -1836,6 +1856,7 @@ void setup() {
     usbVbusActive = true;
   }
   setupBle();
+  setupButtonInterrupt();
   markActivity();
   if (!RECOVERY_MODE && shouldQueueWakeGesture()) {
     uint32_t now = millis();
