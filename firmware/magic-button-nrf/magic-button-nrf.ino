@@ -134,7 +134,7 @@ const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint16_t IDLE_POLL_DELAY_MS = 20;
 const uint32_t MAX_IDLE_BLOCK_MS = 15UL * 1000UL;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
-const uint8_t BATTERY_SAMPLE_COUNT = 3;
+const uint8_t BATTERY_SAMPLE_COUNT = 16;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 1;
 const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
 const int16_t BATTERY_CALIBRATION_OFFSET_MV = 200;
@@ -558,6 +558,19 @@ uint16_t readBatteryAdcMillivolts() {
       ((SAADC_CH_CONFIG_BURST_Disabled << SAADC_CH_CONFIG_BURST_Pos) & SAADC_CH_CONFIG_BURST_Msk);
   NRF_SAADC->CH[0].PSELN = SAADC_CH_PSELP_PSELP_NC;
   NRF_SAADC->CH[0].PSELP = BATTERY_ADC_PSEL;
+
+  // The SAADC offset is temperature-dependent and may also vary after a full
+  // power cycle. Calibrate before each infrequent battery measurement.
+  NRF_SAADC->EVENTS_CALIBRATEDONE = 0;
+  NRF_SAADC->TASKS_CALIBRATEOFFSET = 1;
+  while (!NRF_SAADC->EVENTS_CALIBRATEDONE) {
+  }
+
+  NRF_SAADC->EVENTS_STOPPED = 0;
+  NRF_SAADC->TASKS_STOP = 1;
+  while (!NRF_SAADC->EVENTS_STOPPED) {
+  }
+
   // Discard the first conversion so the SAADC sampling capacitor can settle,
   // then average several fresh conversions.
   int32_t rawSum = 0;
@@ -689,6 +702,14 @@ void updateBatteryLevel(bool forceNotify = false) {
     batteryLevel = measuredLevel;
     batteryInitialized = true;
   } else {
+#if BATTERY_CHEMISTRY_CR2032
+    // A primary CR2032 cannot charge in this device. Ignore upward SAADC noise
+    // so the user-facing level never jumps from 81% back to 100%.
+    if (measuredLevel < batteryLevel &&
+        batteryLevel - measuredLevel >= BATTERY_PERCENT_HYSTERESIS) {
+      batteryLevel = measuredLevel;
+    }
+#else
     int delta = static_cast<int>(measuredLevel) - static_cast<int>(batteryLevel);
     if (delta < 0) {
       delta = -delta;
@@ -697,6 +718,7 @@ void updateBatteryLevel(bool forceNotify = false) {
     if (delta >= BATTERY_PERCENT_HYSTERESIS) {
       batteryLevel = measuredLevel;
     }
+#endif
   }
 
   batteryService.write(batteryLevel);
