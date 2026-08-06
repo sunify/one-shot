@@ -137,13 +137,13 @@ const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
 const uint8_t BATTERY_PERCENT_HYSTERESIS = 1;
 const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
-const int16_t BATTERY_CALIBRATION_OFFSET_MV = 0;
+const int16_t BATTERY_CALIBRATION_OFFSET_MV = 200;
 #if BATTERY_MEASURE_INTERNAL_VDD
-// On the modified SuperMini, B+, VDDH and VDD are tied together. The SAADC's
-// internal VDD input is VDD/4, so no always-on external divider is required.
+// On the modified SuperMini, B+, VDDH and VDD are tied together. The SAADC can
+// sample VDD directly, so no always-on external divider is required.
 const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_VDD;
-const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 4;
-const uint16_t BATTERY_ADC_FULL_SCALE_MV = 1200;
+const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 1;
+const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3600;
 #elif defined(BOARD_UICPAL_MINI_NRF52840)
 // The UICPal MINI has no usable onboard BAT measurement path. Use an external
 // 1M/1M divider with its midpoint connected to D0 (P0.02/AIN0).
@@ -548,7 +548,7 @@ uint16_t readBatteryAdcMillivolts() {
       ((SAADC_CH_CONFIG_RESP_Bypass << SAADC_CH_CONFIG_RESP_Pos) & SAADC_CH_CONFIG_RESP_Msk) |
       ((SAADC_CH_CONFIG_RESN_Bypass << SAADC_CH_CONFIG_RESN_Pos) & SAADC_CH_CONFIG_RESN_Msk) |
 #if BATTERY_MEASURE_INTERNAL_VDD
-      ((SAADC_CH_CONFIG_GAIN_Gain1_2 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
+      ((SAADC_CH_CONFIG_GAIN_Gain1_6 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
 #else
       ((SAADC_CH_CONFIG_GAIN_Gain1_5 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
 #endif
