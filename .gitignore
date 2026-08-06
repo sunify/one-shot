@@ -25,4 +25,4 @@ Thumbs.db
 *.njsproj
 *.sln
 
-.codex-tmp/
+.codex-tmp

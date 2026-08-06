@@ -30,7 +30,10 @@ const bool RECOVERY_MODE = false;
 #endif
 
 #ifndef BUTTON_INTERRUPT_PIN
-#define BUTTON_INTERRUPT_PIN -1
+// The compact Raytac variant exposes only three Arduino pin slots. Slot 2 is
+// used to allocate a core-managed GPIOTE callback, then remapped below to the
+// actual raw button GPIO (P0.20 on the nice!nano build).
+#define BUTTON_INTERRUPT_PIN 2
 #endif
 
 #if defined(BUTTON_PIN_PORT) && defined(BUTTON_PIN_NUMBER)
@@ -50,6 +53,10 @@ const uint32_t BUTTON_GPIO = NRF_GPIO_PIN_MAP(BUTTON_PIN_PORT, BUTTON_PIN_NUMBER
 const uint32_t BUTTON_GROUND_GPIO = NRF_GPIO_PIN_MAP(BUTTON_GROUND_PIN_PORT, BUTTON_GROUND_PIN_NUMBER);
 #define USE_RAW_BUTTON_GROUND_GPIO 1
 #endif
+
+// SuperMini nRF52840 external VCC/LDO cutoff. The faulty 5.6K pull-up is
+// removed on this board, so hold the enable gate deterministically low.
+const uint32_t SUPERMINI_VCC_CUTOFF_GPIO = NRF_GPIO_PIN_MAP(0, 13);
 
 #ifndef BATTERY_ENABLE_PIN_PORT
 #define BATTERY_ENABLE_PIN_PORT -1
@@ -93,15 +100,23 @@ const uint32_t BATTERY_ENABLE_GPIO = NRF_GPIO_PIN_MAP(BATTERY_ENABLE_PIN_PORT, B
 #endif
 
 #ifndef ENABLE_DCDC_REGULATOR
-#define ENABLE_DCDC_REGULATOR 1
+#define ENABLE_DCDC_REGULATOR 0
 #endif
 
 #ifndef DCDC_BATTERY_ONLY
 #define DCDC_BATTERY_ONLY 0
 #endif
 
+#ifndef BATTERY_MEASURE_INTERNAL_VDD
+#if defined(BOARD_UICPAL_MINI_NRF52840) || defined(USE_BATTERY_ENABLE_GPIO)
+#define BATTERY_MEASURE_INTERNAL_VDD 0
+#else
+#define BATTERY_MEASURE_INTERNAL_VDD 1
+#endif
+#endif
+
 #ifndef BATTERY_CHEMISTRY_CR2032
-#define BATTERY_CHEMISTRY_CR2032 0
+#define BATTERY_CHEMISTRY_CR2032 BATTERY_MEASURE_INTERNAL_VDD
 #endif
 
 const uint8_t CONFIG_VERSION = 1;
@@ -109,31 +124,39 @@ const uint16_t MULTI_TAP_TIMEOUT = 250;
 const uint16_t QUICK_TAP_MAX_PRESS = 100;
 const uint16_t LONG_PRESS_TIME = 600;
 const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
+const uint32_t CONFIG_ADVERTISING_TIMEOUT_MS = 60UL * 1000UL;
 const uint16_t DEBOUNCE_TIME = 10;
 const uint16_t REPORT_DELAY_MS = 12;
-const uint32_t IDLE_SLEEP_TIMEOUT_MS = 30000;
-// Temporary short timeout for the isolated XIAO variant GPIO experiment.
-const uint32_t DEEP_SLEEP_TIMEOUT_MS = 40UL * 1000UL;
-const uint32_t DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS = 40UL * 1000UL;
+const uint32_t IDLE_SLEEP_TIMEOUT_MS = 15UL * 1000UL;
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 4UL * 60UL * 60UL * 1000UL;
+const uint32_t DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS = 90UL * 60UL * 1000UL;
 const uint16_t ACTIVE_POLL_DELAY_MS = 5;
 const uint16_t IDLE_POLL_DELAY_MS = 20;
-const uint32_t MAX_IDLE_BLOCK_MS = 1000;
+const uint32_t MAX_IDLE_BLOCK_MS = 15UL * 1000UL;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 300000;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
-const uint8_t BATTERY_PERCENT_HYSTERESIS = 2;
+const uint8_t BATTERY_PERCENT_HYSTERESIS = 1;
 const uint8_t BATTERY_USB_CHARGE_STEP_PERCENT = 1;
 const int16_t BATTERY_CALIBRATION_OFFSET_MV = 0;
-#if defined(BOARD_UICPAL_MINI_NRF52840)
+#if BATTERY_MEASURE_INTERNAL_VDD
+// On the modified SuperMini, B+, VDDH and VDD are tied together. The SAADC's
+// internal VDD input is VDD/4, so no always-on external divider is required.
+const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_VDD;
+const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 4;
+const uint16_t BATTERY_ADC_FULL_SCALE_MV = 1200;
+#elif defined(BOARD_UICPAL_MINI_NRF52840)
 // The UICPal MINI has no usable onboard BAT measurement path. Use an external
 // 1M/1M divider with its midpoint connected to D0 (P0.02/AIN0).
 const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 2);
 const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput0;
+const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
+const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
 #else
 const uint32_t BATTERY_ADC_GPIO = NRF_GPIO_PIN_MAP(0, 31);
 const uint32_t BATTERY_ADC_PSEL = SAADC_CH_PSELP_PSELP_AnalogInput7;
-#endif
 const uint8_t BATTERY_ADC_DIVIDER_MULTIPLIER = 2;
 const uint16_t BATTERY_ADC_FULL_SCALE_MV = 3000;
+#endif
 const bool IDLE_USES_SYSTEM_OFF = false;
 const uint16_t BLE_ADVERTISING_INTERVAL_FAST = 32;
 const uint16_t BLE_ADVERTISING_INTERVAL_SLOW = 160;
@@ -267,6 +290,8 @@ bool batteryInitialized = false;
 TaskHandle_t loopTaskHandle = nullptr;
 bool buttonInterruptAttached = false;
 bool bleReadySeen = false;
+bool configAdvertisingActive = false;
+uint32_t configAdvertisingUntil = 0;
 uint8_t batteryLevel = 100;
 uint16_t batteryMillivolts = 4200;
 
@@ -423,8 +448,19 @@ void setupButtonInput() {
 void setupButtonInterrupt() {
 #if BUTTON_INTERRUPT_PIN >= 0
   loopTaskHandle = xTaskGetCurrentTaskHandle();
-  buttonInterruptAttached =
-      attachInterrupt(BUTTON_INTERRUPT_PIN, buttonPressInterrupt, FALLING) != 0;
+  const int interruptMask = attachInterrupt(BUTTON_INTERRUPT_PIN, buttonPressInterrupt, FALLING);
+  buttonInterruptAttached = interruptMask != 0;
+
+#if defined(USE_RAW_BUTTON_GPIO)
+  if (buttonInterruptAttached) {
+    const uint8_t channel = static_cast<uint8_t>(__builtin_ctz(static_cast<unsigned>(interruptMask)));
+    uint32_t config = NRF_GPIOTE->CONFIG[channel];
+    config &= ~(GPIOTE_CONFIG_PSEL_Msk | GPIOTE_CONFIG_PORT_Msk);
+    config |= ((uint32_t) BUTTON_PIN_NUMBER << GPIOTE_CONFIG_PSEL_Pos) |
+              ((uint32_t) BUTTON_PIN_PORT << GPIOTE_CONFIG_PORT_Pos);
+    NRF_GPIOTE->CONFIG[channel] = config;
+  }
+#endif
 #endif
 }
 
@@ -443,28 +479,17 @@ void setupButtonGround() {
 #endif
 }
 
-void neutralizeXiaoOnlyControlPinsForClone() {
-#if defined(BOARD_UICPAL_MINI_NRF52840)
-  // Seeed's initVariant() drives these pins for the original XIAO battery
-  // divider, charger and LEDs before setup(). They are not used by UICPal.
-  static const uint32_t xiaoOnlyPins[] = {
-      NRF_GPIO_PIN_MAP(0, 14),
-      NRF_GPIO_PIN_MAP(0, 13),
-      NRF_GPIO_PIN_MAP(0, 26),
-      NRF_GPIO_PIN_MAP(0, 6),
-      NRF_GPIO_PIN_MAP(0, 30),
-  };
-  for (uint32_t pin : xiaoOnlyPins) {
-    nrf_gpio_cfg_default(pin);
-  }
-#endif
-}
-
 void holdButtonGroundLow() {
 #if defined(USE_RAW_BUTTON_GROUND_GPIO)
   nrf_gpio_cfg_output(BUTTON_GROUND_GPIO);
   nrf_gpio_pin_clear(BUTTON_GROUND_GPIO);
 #endif
+}
+
+void holdSuperMiniExternalVccOff() {
+  // Set the output latch before changing direction to avoid an enable pulse.
+  nrf_gpio_pin_clear(SUPERMINI_VCC_CUTOFF_GPIO);
+  nrf_gpio_cfg_output(SUPERMINI_VCC_CUTOFF_GPIO);
 }
 
 void setupBatteryMeasurement() {
@@ -499,6 +524,7 @@ void prepareBatteryPinsForSystemOff() {
 uint16_t readBatteryAdcMillivolts() {
 #if defined(NRF_SAADC)
   setupBatteryMeasurement();
+#if !BATTERY_MEASURE_INTERNAL_VDD
   nrf_gpio_cfg(
       BATTERY_ADC_GPIO,
       NRF_GPIO_PIN_DIR_INPUT,
@@ -506,6 +532,7 @@ uint16_t readBatteryAdcMillivolts() {
       NRF_GPIO_PIN_NOPULL,
       NRF_GPIO_PIN_S0S1,
       NRF_GPIO_PIN_NOSENSE);
+#endif
 
   volatile int16_t raw = 0;
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Enabled << SAADC_ENABLE_ENABLE_Pos);
@@ -520,7 +547,11 @@ uint16_t readBatteryAdcMillivolts() {
   NRF_SAADC->CH[0].CONFIG =
       ((SAADC_CH_CONFIG_RESP_Bypass << SAADC_CH_CONFIG_RESP_Pos) & SAADC_CH_CONFIG_RESP_Msk) |
       ((SAADC_CH_CONFIG_RESN_Bypass << SAADC_CH_CONFIG_RESN_Pos) & SAADC_CH_CONFIG_RESN_Msk) |
+#if BATTERY_MEASURE_INTERNAL_VDD
+      ((SAADC_CH_CONFIG_GAIN_Gain1_2 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
+#else
       ((SAADC_CH_CONFIG_GAIN_Gain1_5 << SAADC_CH_CONFIG_GAIN_Pos) & SAADC_CH_CONFIG_GAIN_Msk) |
+#endif
       ((SAADC_CH_CONFIG_REFSEL_Internal << SAADC_CH_CONFIG_REFSEL_Pos) & SAADC_CH_CONFIG_REFSEL_Msk) |
       ((SAADC_CH_CONFIG_TACQ_40us << SAADC_CH_CONFIG_TACQ_Pos) & SAADC_CH_CONFIG_TACQ_Msk) |
       ((SAADC_CH_CONFIG_MODE_SE << SAADC_CH_CONFIG_MODE_Pos) & SAADC_CH_CONFIG_MODE_Msk) |
@@ -557,8 +588,8 @@ uint16_t readBatteryAdcMillivolts() {
 
   NRF_SAADC->ENABLE = (SAADC_ENABLE_ENABLE_Disabled << SAADC_ENABLE_ENABLE_Pos);
   uint32_t rawAverage = static_cast<uint32_t>(rawSum / BATTERY_SAMPLE_COUNT);
-  uint32_t adcMillivolts = (rawAverage * BATTERY_ADC_FULL_SCALE_MV) / 4095;
-  uint32_t batteryMv = adcMillivolts * BATTERY_ADC_DIVIDER_MULTIPLIER;
+  uint32_t batteryMv =
+      (rawAverage * BATTERY_ADC_FULL_SCALE_MV * BATTERY_ADC_DIVIDER_MULTIPLIER) / 4095;
   return static_cast<uint16_t>(batteryMv + BATTERY_CALIBRATION_OFFSET_MV);
 #else
   return batteryMillivolts;
@@ -635,7 +666,7 @@ void updateBatteryLevel(bool forceNotify = false) {
   uint8_t previousLevel = batteryLevel;
 
   batteryMillivolts = newMillivolts;
-  if (usbVbusActive && batteryInitialized) {
+  if (usbVbusActive && batteryInitialized && !BATTERY_CHEMISTRY_CR2032) {
     uint8_t measuredLevel = batteryPercentFromMillivolts(newMillivolts);
     if (measuredLevel < batteryLevel) {
       int delta = static_cast<int>(batteryLevel) - static_cast<int>(measuredLevel);
@@ -787,6 +818,13 @@ void configureDcdcForPowerSource(bool vbusPresent) {
   sd_power_dcdc_mode_set(enable ? NRF_POWER_DCDC_ENABLE : NRF_POWER_DCDC_DISABLE);
 #else
   (void) vbusPresent;
+  sd_power_dcdc_mode_set(NRF_POWER_DCDC_DISABLE);
+#if defined(NRF52840_XXAA)
+  // The nice!nano-compatible bootloader may leave the high-voltage REG0
+  // converter enabled. Early nRF52840 silicon has a ~300 uA System ON idle
+  // penalty in this mode (errata 197), so explicitly force its LDO path.
+  sd_power_dcdc0_mode_set(NRF_POWER_DCDC_DISABLE);
+#endif
 #endif
 }
 
@@ -1216,6 +1254,32 @@ void disconnectAllBleConnections() {
 
 void startAdvertising();
 
+void startConfigAdvertising(uint32_t now) {
+  if (Bluefruit.connected() >= 2) {
+    return;
+  }
+
+  configAdvertisingActive = true;
+  configAdvertisingUntil = now + CONFIG_ADVERTISING_TIMEOUT_MS;
+  startAdvertising();
+  markActivity(now);
+}
+
+void updateConfigAdvertising(uint32_t now) {
+  if (configAdvertisingActive &&
+      static_cast<int32_t>(now - configAdvertisingUntil) >= 0) {
+    configAdvertisingActive = false;
+  }
+
+  // Keep normal HID connected while exposing the second peripheral slot only
+  // during the explicit configuration window.
+  if (!configAdvertisingActive &&
+      hasActiveBleConnection() &&
+      Bluefruit.Advertising.isRunning()) {
+    Bluefruit.Advertising.stop();
+  }
+}
+
 void emitHeartbeat(uint32_t now) {
   if (!shouldLogSerial()) {
     return;
@@ -1310,7 +1374,11 @@ void updateButton(uint32_t now) {
     }
 
     if (tapCount > 0 && buttonState == HIGH && now - lastReleaseAt >= MULTI_TAP_TIMEOUT) {
-      sendAction(tapCount == 1 ? GESTURE_SINGLE_TAP : GESTURE_DOUBLE_TAP);
+      if (tapCount >= 3) {
+        startConfigAdvertising(now);
+      } else {
+        sendAction(tapCount == 1 ? GESTURE_SINGLE_TAP : GESTURE_DOUBLE_TAP);
+      }
       tapCount = 0;
     }
 
@@ -1428,7 +1496,11 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason) {
     Serial.print(" reason=0x");
     Serial.println(reason, HEX);
   }
-  markActivity();
+  // A disconnect while already idle switches to the shorter disconnected
+  // System OFF policy without treating the disconnect as user activity.
+  if (!sleeping) {
+    markActivity();
+  }
   wakeLoopTask();
 }
 
@@ -1493,7 +1565,7 @@ void updateBlePowerProfile(uint32_t now) {
 void setupBle() {
   Bluefruit.autoConnLed(false);
   Bluefruit.configPrphBandwidth(BANDWIDTH_LOW);
-  Bluefruit.begin();
+  Bluefruit.begin(2, 0);
   sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
   configureDcdcForPowerSource(isRawVbusPresent());
   Bluefruit.setTxPower(BLE_TX_POWER_FAST_DBM);
@@ -1668,6 +1740,7 @@ void enterSleep() {
   if (sleeping) {
     return;
   }
+  const bool connected = hasActiveBleConnection();
   sleeping = true;
 
 #if INITIALIZE_BUILTIN_LED && defined(LED_BUILTIN)
@@ -1676,7 +1749,9 @@ void enterSleep() {
   setStatusLed(false);
 
   Bluefruit.Advertising.restartOnDisconnect(false);
-  Bluefruit.Advertising.stop();
+  if (!connected) {
+    Bluefruit.Advertising.stop();
+  }
   armButtonWakeSense();
 }
 
@@ -1714,7 +1789,6 @@ void enterSystemOff() {
   delay(10);
   putUnusedExternalFlashInDeepPowerDown();
   prepareBatteryPinsForSystemOff();
-  neutralizeXiaoOnlyControlPinsForClone();
 
   uint8_t softDeviceEnabled = 0;
   (void) sd_softdevice_is_enabled(&softDeviceEnabled);
@@ -1914,6 +1988,7 @@ void disableNfcPinsIfNeeded() {
 
 void setup() {
   disableNfcPinsIfNeeded();
+  holdSuperMiniExternalVccOff();
 #if INITIALIZE_BUILTIN_LED && defined(LED_BUILTIN)
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
@@ -1937,7 +2012,6 @@ void setup() {
   setupButtonInterrupt();
   setupButtonGround();
   setupBatteryMeasurement();
-  neutralizeXiaoOnlyControlPinsForClone();
 
   setupStorage();
   loadConfig();
@@ -1971,12 +2045,10 @@ void setup() {
     Serial.print(".");
     Serial.println(BUTTON_PIN_NUMBER);
 #endif
-#ifdef SAADC_CH_PSELP_PSELP_VDDHDIV5
-    Serial.println("battery source: VDDH/5");
-#elif defined(SAADC_CH_PSELP_PSELP_VDD)
+#if BATTERY_MEASURE_INTERNAL_VDD
     Serial.println("battery source: VDD");
 #else
-    Serial.println("battery source: unavailable");
+    Serial.println("battery source: external divider");
 #endif
   }
 }
@@ -1997,6 +2069,7 @@ void loop() {
   flushPendingGesture(now);
   updateStatusLed(now);
   updateBlePowerProfile(now);
+  updateConfigAdvertising(now);
   emitHeartbeat(now);
 
   if (now - lastBatteryUpdateAt >= BATTERY_UPDATE_INTERVAL_MS) {

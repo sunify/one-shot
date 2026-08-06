@@ -157,6 +157,9 @@ watch(currentDeviceAnimation, () => {
           Подключить по USB
         </button>
       </div>
+      <p v-if="!isConnected" class="connection-hint">
+        Не появился в списке? Быстро нажмите кнопку три раза и повторите подключение в течение минуты.
+      </p>
       <p v-if="statusText" class="connection-status">{{ statusText }}</p>
     </section>
 
@@ -236,6 +239,15 @@ h1 {
   flex-direction: column;
   gap: 0.75rem;
   margin-top: 2rem;
+}
+
+.connection-hint {
+  color: var(--color-title);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  margin: 1rem auto 0;
+  max-width: 25rem;
+  opacity: 0.5;
 }
 
 .connection-status {
