@@ -24,3 +24,5 @@ Thumbs.db
 *.ntvs*
 *.njsproj
 *.sln
+
+.codex-tmp
