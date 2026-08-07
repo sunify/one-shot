@@ -80,4 +80,7 @@ npm run firmware:upload:magic
 браузера, быстро нажмите кнопку три раза. Прошивка откроет второе BLE-подключение
 для конфигуратора на 60 секунд, не отключая HID.
 
+Архитектура актуальной nRF52840-версии описана в
+[`docs/magic-button-nrf-architecture.md`](docs/magic-button-nrf-architecture.md).
+
 Скрипт `scripts/firmware.sh` читает значения из `.env` и передает их в `arduino-cli`. Для `Magic Button` по умолчанию используются `USB_PRODUCT="Magic Button"` и `USB_MANUFACTURER="Huntflow"`, а имя для ESP32 зафиксировано прямо в скетче, чтобы не упираться в экранирование build flags.

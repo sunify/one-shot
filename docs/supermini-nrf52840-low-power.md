@@ -32,21 +32,26 @@ battery voltage and never exceeds 3.6 V.
 
 ## Firmware behavior
 
-- Button press is detected by a falling-edge GPIOTE interrupt in System ON.
+- Button press uses GPIO SENSE LOW and the shared GPIOTE PORT event routed
+  through PPI channel 15 to EGU3. No high-current GPIOTE IN channel is used.
 - System OFF wake uses GPIO SENSE LOW on P0.20.
 - System ON idle starts after 15 seconds.
 - An existing BLE connection is retained in idle with low-power connection
   parameters.
 - System OFF starts after four hours while BLE remains connected, or after
   1.5 hours without a BLE connection.
-- Battery voltage is measured internally from VDD/4 with the SAADC and mapped
-  using the CR2032 discharge curve. No external divider is required.
+- Battery voltage is sampled directly from the SAADC VDD input with the
+  internal 0.6 V reference and gain 1/6. No external divider is required.
 
 ## Measured result
 
-On the modified board, observed current was about 18 uA between connected BLE
-radio events and approximately 0.3-0.5 uA in System OFF. Instantaneous BLE
-readings vary because a multimeter averages short radio-current pulses.
+On the modified board, the observed System ON idle floor was about 2.9 uA,
+with brief connected BLE peaks up to about 120 uA, and System OFF was about
+0.4-0.5 uA. Instantaneous readings vary because a multimeter averages short
+radio-current pulses.
+
+The firmware architecture is documented in
+`docs/magic-button-nrf-architecture.md`.
 
 Updating the UF2 bootloader from 0.6.0 to 0.9.2 did not change power
 consumption. The material improvement came from bypassing VDDH/REG0 and
