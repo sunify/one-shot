@@ -1,5 +1,10 @@
 import { computed, reactive, ref } from 'vue'
-import { ACTION_TYPES, DEVICE_TYPES, THIRD_ACTION_TRIGGERS } from '../protocol'
+import {
+  ACTION_TYPES,
+  DEVICE_CAPABILITIES,
+  DEVICE_TYPES,
+  THIRD_ACTION_TRIGGERS,
+} from '../protocol'
 
 function cloneGesture(gesture) {
   return {
@@ -14,6 +19,7 @@ export function useConfiguratorState() {
   const isDevicePressed = ref(false)
   const suppressAutoSave = ref(false)
   const numLeds = ref(1)
+  const deviceCapabilities = ref(0)
   const thirdActionTrigger = ref(THIRD_ACTION_TRIGGERS.tripleTap)
   const caseColors = reactive({
     keycap: '#ffffff',
@@ -32,6 +38,7 @@ export function useConfiguratorState() {
     blue: 210,
     animationMode: 1,
     sleepTimeout: 0,
+    turboMode: false,
   })
 
   const selectedColor = computed({
@@ -46,20 +53,32 @@ export function useConfiguratorState() {
   })
 
   const supportsLighting = computed(() => numLeds.value > 0)
+  const supportsTurboMode = computed(
+    () => (deviceCapabilities.value & DEVICE_CAPABILITIES.turboMode) !== 0,
+  )
   const hasEncoder = computed(() => form.encoderCW != null)
 
   const gestureFields = computed(() => {
     const fields = [
-      { key: 'singleTap', label: 'Одиночное нажатие', animation: { type: 'tap', count: 1 } },
-      { key: 'doubleTap', label: 'Двойное нажатие', animation: { type: 'tap', count: 2 } },
       {
-        key: 'tripleTap',
-        label: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress ? 'Долгое нажатие' : 'Тройное нажатие',
-        animation: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress
-          ? { type: 'press' }
-          : { type: 'tap', count: 3 },
+        key: 'singleTap',
+        label: form.turboMode ? 'Нажатие' : 'Одиночное нажатие',
+        animation: { type: 'tap', count: 1 },
       },
     ]
+
+    if (!form.turboMode) {
+      fields.push(
+        { key: 'doubleTap', label: 'Двойное нажатие', animation: { type: 'tap', count: 2 } },
+        {
+          key: 'tripleTap',
+          label: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress ? 'Долгое нажатие' : 'Тройное нажатие',
+          animation: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress
+            ? { type: 'press' }
+            : { type: 'tap', count: 3 },
+        },
+      )
+    }
 
     if (hasEncoder.value) {
       fields.push(
@@ -104,6 +123,7 @@ export function useConfiguratorState() {
 
   function applyDeviceInfo(info) {
     numLeds.value = info.numLeds
+    deviceCapabilities.value = info.capabilities ?? 0
     thirdActionTrigger.value = info.thirdActionTrigger ?? (
       deviceType.value === DEVICE_TYPES.magicButton
         ? THIRD_ACTION_TRIGGERS.longPress
@@ -115,9 +135,15 @@ export function useConfiguratorState() {
     caseColors.bottomCase = info.bottomCase
   }
 
+  function applyDeviceOptions(options) {
+    suppressAutoSave.value = true
+    form.turboMode = options.turboMode === true
+  }
+
   return {
     applyConfig,
     applyDeviceInfo,
+    applyDeviceOptions,
     caseColors,
     deviceType,
     form,
@@ -127,6 +153,7 @@ export function useConfiguratorState() {
     numLeds,
     selectedColor,
     supportsLighting,
+    supportsTurboMode,
     suppressAutoSave,
     thirdActionTrigger,
     updateGesture,

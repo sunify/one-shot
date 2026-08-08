@@ -9,7 +9,9 @@ import {
   buildFrame,
   decodeConfig,
   decodeDeviceInfo,
+  decodeDeviceOptions,
   encodeConfig,
+  encodeDeviceOptions,
   parseFrames,
 } from '../protocol'
 
@@ -114,7 +116,15 @@ function normalizeSerialError(error) {
   return message || 'Не удалось подключить устройство'
 }
 
-export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, form, isDevicePressed }) {
+export function useDeviceConnection({
+  applyConfig,
+  applyDeviceInfo,
+  applyDeviceOptions,
+  deviceType,
+  form,
+  isDevicePressed,
+  supportsTurboMode,
+}) {
   const port = ref(null)
   const reader = ref(null)
   const writer = ref(null)
@@ -237,9 +247,28 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
     }
   }
 
+  function handleHidInputReport(event) {
+    const report = dataViewToUint8Array(event.data)
+
+    if (event.reportId !== 3) {
+      return
+    }
+
+    const parsed = parseFrames(report)
+    for (const frame of parsed.frames) {
+      if (frame.command === COMMANDS.buttonEvent && frame.payload.length > 0) {
+        isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
+      }
+    }
+  }
+
   async function disconnect(options = {}) {
     const { preserveStatus = false } = options
     pendingResolver.value = null
+    if (hidDevice.value) {
+      hidDevice.value.oninputreport = null
+    }
+    isDevicePressed.value = false
 
     try {
       await reader.value?.cancel()
@@ -299,9 +328,15 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
               return
             }
 
+            const response = dataViewToUint8Array(event.data)
+            const parsed = parseFrames(response)
+            if (!parsed.frames.some((frame) => expected.includes(frame.command))) {
+              return
+            }
+
             window.clearTimeout(timeoutId)
             hidDevice.value?.removeEventListener('inputreport', handleInputReport)
-            resolve(dataViewToUint8Array(event.data))
+            resolve(response)
           }
 
           hidDevice.value.addEventListener('inputreport', handleInputReport)
@@ -426,6 +461,24 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
     })
   }
 
+  async function refreshDeviceOptions() {
+    if (!supportsTurboMode.value) {
+      applyDeviceOptions({ turboMode: false })
+      return
+    }
+
+    const frame = await sendCommand(
+      COMMANDS.getDeviceOptions,
+      new Uint8Array(),
+      [COMMANDS.deviceOptions, COMMANDS.error],
+    )
+    if (frame.command === COMMANDS.error) {
+      throw new Error(`Устройство не вернуло дополнительные настройки: ${frame.payload[0]}`)
+    }
+
+    applyDeviceOptions(decodeDeviceOptions(frame.payload))
+  }
+
   async function verifyDevice() {
     let frame
 
@@ -534,6 +587,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
             transport.value = null
           } else {
             console.debug('[webhid] mode', hidMode.value)
+            hidDevice.value.oninputreport = handleHidInputReport
           }
           if (!hidMode.value) {
             // Continue to WebSerial selection below.
@@ -543,8 +597,9 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
           statusText.value = ''
           await verifyDevice()
           await fetchDeviceInfo()
-          isConnected.value = true
           await refreshConfig()
+          await refreshDeviceOptions()
+          isConnected.value = true
           return
           }
         }
@@ -571,10 +626,11 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
       void readLoop()
       await verifyDevice()
       await fetchDeviceInfo()
-      isConnected.value = true
       await refreshConfig()
+      await refreshDeviceOptions()
+      isConnected.value = true
     } catch (error) {
-      if (port.value) {
+      if (port.value || hidDevice.value) {
         await disconnect({ preserveStatus: true })
       }
       statusText.value = normalizeSerialError(error)
@@ -590,6 +646,17 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
 
       if (frame.command === COMMANDS.error || frame.payload[0] !== STATUS.ok) {
         throw new Error(`Не удалось сохранить конфигурацию: ${frame.payload[0]}`)
+      }
+
+      if (supportsTurboMode.value) {
+        const optionsFrame = await sendCommand(
+          COMMANDS.setDeviceOptions,
+          encodeDeviceOptions(form),
+          [COMMANDS.ack, COMMANDS.error],
+        )
+        if (optionsFrame.command === COMMANDS.error || optionsFrame.payload[0] !== STATUS.ok) {
+          throw new Error(`Не удалось сохранить режим кнопки: ${optionsFrame.payload[0]}`)
+        }
       }
 
       statusText.value = 'Сохранено'
@@ -608,6 +675,7 @@ export function useDeviceConnection({ applyConfig, applyDeviceInfo, deviceType, 
       }
 
       applyConfig(decodeConfig(frame.payload))
+      await refreshDeviceOptions()
     })
   }
 

@@ -4,6 +4,7 @@ import throttle from 'lodash-es/throttle'
 import DevicePreview from './components/DevicePreview.vue'
 import ColorControl from './components/controls/ColorControl.vue'
 import GestureField from './components/controls/GestureField.vue'
+import TurboModeSwitch from './components/controls/TurboModeSwitch.vue'
 import PanelSection from './components/layout/PanelSection.vue'
 import { useConfiguratorState } from './composables/useConfiguratorState'
 import { useDeviceConnection } from './composables/useDeviceConnection'
@@ -13,6 +14,7 @@ import { HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS, getDeviceName
 const {
   applyConfig,
   applyDeviceInfo,
+  applyDeviceOptions,
   caseColors,
   deviceType,
   form,
@@ -20,6 +22,7 @@ const {
   isDevicePressed,
   selectedColor,
   supportsLighting,
+  supportsTurboMode,
   suppressAutoSave,
   updateGesture,
 } = useConfiguratorState()
@@ -39,9 +42,11 @@ const {
 } = useDeviceConnection({
   applyConfig,
   applyDeviceInfo,
+  applyDeviceOptions,
   deviceType,
   form,
   isDevicePressed,
+  supportsTurboMode,
 })
 
 const appTitle = computed(() => {
@@ -97,6 +102,11 @@ watch(
     }
   },
   { deep: true },
+)
+
+watch(
+  () => form.turboMode,
+  () => handleGestureFieldClose(),
 )
 
 const currentDeviceAnimation = ref(null);
@@ -166,6 +176,10 @@ watch(currentDeviceAnimation, () => {
     </PanelSection>
 
     <PanelSection v-if="isConnected">
+      <TurboModeSwitch
+        v-if="supportsTurboMode"
+        v-model="form.turboMode"
+      />
       <div class="grid">
         <GestureField
           v-for="gestureField in gestureFields"

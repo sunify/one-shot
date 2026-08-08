@@ -8,10 +8,13 @@ export const COMMANDS = {
   resetConfig: 0x03,
   ping: 0x04,
   getDeviceInfo: 0x05,
+  getDeviceOptions: 0x06,
+  setDeviceOptions: 0x07,
   config: 0x81,
   ack: 0x82,
   pong: 0x84,
   deviceInfo: 0x85,
+  deviceOptions: 0x86,
   buttonEvent: 0x90,
   error: 0xff,
 }
@@ -19,6 +22,14 @@ export const COMMANDS = {
 export const BUTTON_EVENT_STATE = {
   released: 0x00,
   pressed: 0x01,
+}
+
+export const DEVICE_CAPABILITIES = {
+  turboMode: 0x0001,
+}
+
+export const DEVICE_OPTION_FLAGS = {
+  turboMode: 0x0001,
 }
 
 export const STATUS = {
@@ -608,6 +619,23 @@ export function decodeDeviceInfo(payload) {
     topCaseShade: shadeEnabled ? rgbToHex(payload[7], payload[8], payload[9]) : 'transparent',
     bottomCase: rgbToHex(payload[10], payload[11], payload[12]),
     thirdActionTrigger: payload[14] ?? THIRD_ACTION_TRIGGERS.tripleTap,
+    capabilities: payload.length >= 17 ? payload[15] | (payload[16] << 8) : 0,
+  }
+}
+
+export function encodeDeviceOptions(options) {
+  const flags = options.turboMode ? DEVICE_OPTION_FLAGS.turboMode : 0
+  return new Uint8Array([1, flags & 0xff, (flags >> 8) & 0xff])
+}
+
+export function decodeDeviceOptions(payload) {
+  if (payload.length < 3 || payload[0] !== 1) {
+    throw new Error(`Unexpected device options payload: ${[...payload].join(',')}`)
+  }
+
+  const flags = payload[1] | (payload[2] << 8)
+  return {
+    turboMode: (flags & DEVICE_OPTION_FLAGS.turboMode) !== 0,
   }
 }
 
@@ -619,6 +647,7 @@ export const DEFAULT_DEVICE_INFO = {
     topCaseShade: '#cf00ff',
     bottomCase: '#ffffff',
     thirdActionTrigger: THIRD_ACTION_TRIGGERS.tripleTap,
+    capabilities: 0,
   },
   [DEVICE_TYPES.magicButton]: {
     numLeds: 0,
@@ -627,5 +656,6 @@ export const DEFAULT_DEVICE_INFO = {
     topCaseShade: '#ffffff',
     bottomCase: '#ffffff',
     thirdActionTrigger: THIRD_ACTION_TRIGGERS.longPress,
+    capabilities: 0,
   },
 }

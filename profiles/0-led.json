@@ -1,6 +1,6 @@
 {
   "button_ground_pin": "4",
-  "button_input_pin": "A2",
+  "button_input_pin": "PB11",
   "data_pin": "A3",
   "num_leds": 0,
   "third_action_trigger": "triple_tap",

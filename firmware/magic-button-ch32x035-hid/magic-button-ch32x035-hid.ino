@@ -73,12 +73,15 @@ constexpr uint8_t BUTTON_PIN = CH32_BUTTON_PIN;
 constexpr uint16_t DEBOUNCE_MS = 10;
 constexpr uint16_t REARM_MS = 80;
 constexpr uint16_t QUICK_TAP_MAX_PRESS_MS = 100;
-constexpr uint16_t DOUBLE_TAP_MS = 250;
+constexpr uint16_t DOUBLE_TAP_MS = 200;
 constexpr uint16_t LONG_PRESS_MS = 600;
 constexpr uint8_t CONFIG_VERSION = 6;
 constexpr uint32_t CONFIG_FLASH_ADDR = 0x0800F700;
 constexpr uint32_t CONFIG_FLASH_SIZE = 256;
 constexpr uint32_t CONFIG_FLASH_MAGIC = 0x4D423332;
+constexpr uint32_t OPTIONS_FLASH_MAGIC = 0x4D424F50;
+constexpr uint8_t DEVICE_OPTIONS_VERSION = 1;
+constexpr uint16_t SUPPORTED_OPTION_FLAGS = DEVICE_OPTION_TURBO_MODE;
 constexpr uint8_t RAW_HID_KEY_OFFSET = 136;
 constexpr uint8_t FEATURE_REPORT_ID = 3;
 constexpr uint8_t FEATURE_REPORT_SIZE = 64;
@@ -101,6 +104,22 @@ struct __attribute__((packed)) StoredConfig {
   DeviceConfig config;
 };
 
+struct __attribute__((packed)) DeviceOptions {
+  uint8_t version;
+  uint16_t flags;
+  uint8_t crc;
+};
+
+struct __attribute__((packed)) StoredOptions {
+  uint32_t magic;
+  DeviceOptions options;
+};
+
+constexpr uint16_t OPTIONS_FLASH_OFFSET = (sizeof(StoredConfig) + 3U) & ~3U;
+static_assert(
+    OPTIONS_FLASH_OFFSET + sizeof(StoredOptions) <= CONFIG_FLASH_SIZE,
+    "Stored config and options must fit in one flash page.");
+
 int stableState = HIGH;
 int lastRawState = HIGH;
 uint32_t lastRawChangeAt = 0;
@@ -110,6 +129,7 @@ uint32_t singleTapDueAt = 0;
 bool waitForSecondTap = false;
 bool longPressSent = false;
 DeviceConfig config;
+DeviceOptions deviceOptions;
 
 DeviceConfig defaultConfig() {
   DeviceConfig cfg;
@@ -131,9 +151,33 @@ void applyConfig(const DeviceConfig &cfg) {
   config = cfg;
 }
 
-bool persistConfig(DeviceConfig cfg) {
+DeviceOptions defaultDeviceOptions() {
+  DeviceOptions options = {DEVICE_OPTIONS_VERSION, 0, 0};
+  options.crc = computeConfigCrc(options);
+  return options;
+}
+
+bool isDeviceOptionsValid(const DeviceOptions &options) {
+  return isConfigValid(options, DEVICE_OPTIONS_VERSION) &&
+         (options.flags & ~SUPPORTED_OPTION_FLAGS) == 0;
+}
+
+void applyDeviceOptions(const DeviceOptions &options) {
+  deviceOptions = options;
+  waitForSecondTap = false;
+  longPressSent = stableState == LOW;
+}
+
+bool turboModeEnabled() {
+  return (deviceOptions.flags & DEVICE_OPTION_TURBO_MODE) != 0;
+}
+
+bool persistState(DeviceConfig cfg, DeviceOptions options) {
   cfg.version = CONFIG_VERSION;
   cfg.crc = computeConfigCrc(cfg);
+  options.version = DEVICE_OPTIONS_VERSION;
+  options.flags &= SUPPORTED_OPTION_FLAGS;
+  options.crc = computeConfigCrc(options);
 
   uint32_t page[CONFIG_FLASH_SIZE / sizeof(uint32_t)];
   for (uint16_t i = 0; i < CONFIG_FLASH_SIZE / sizeof(uint32_t); i++) {
@@ -142,6 +186,10 @@ bool persistConfig(DeviceConfig cfg) {
 
   StoredConfig stored = {CONFIG_FLASH_MAGIC, cfg};
   memcpy(page, &stored, sizeof(stored));
+  StoredOptions storedOptions = {OPTIONS_FLASH_MAGIC, options};
+  memcpy(reinterpret_cast<uint8_t *>(page) + OPTIONS_FLASH_OFFSET,
+         &storedOptions,
+         sizeof(storedOptions));
 
   noInterrupts();
   FLASH_Unlock_Fast();
@@ -155,24 +203,48 @@ bool persistConfig(DeviceConfig cfg) {
   interrupts();
 
   const StoredConfig *written = reinterpret_cast<const StoredConfig *>(CONFIG_FLASH_ADDR);
-  if (written->magic == CONFIG_FLASH_MAGIC && isConfigValid(written->config, CONFIG_VERSION)) {
+  const StoredOptions *writtenOptions = reinterpret_cast<const StoredOptions *>(
+      CONFIG_FLASH_ADDR + OPTIONS_FLASH_OFFSET);
+  if (written->magic == CONFIG_FLASH_MAGIC &&
+      isConfigValid(written->config, CONFIG_VERSION) &&
+      writtenOptions->magic == OPTIONS_FLASH_MAGIC &&
+      isDeviceOptionsValid(writtenOptions->options)) {
     applyConfig(cfg);
+    applyDeviceOptions(options);
     return true;
   }
 
   return false;
 }
 
+bool persistConfig(DeviceConfig cfg) {
+  return persistState(cfg, deviceOptions);
+}
+
+bool persistDeviceOptions(DeviceOptions options) {
+  return persistState(config, options);
+}
+
 void loadConfig() {
   const StoredConfig *stored = reinterpret_cast<const StoredConfig *>(CONFIG_FLASH_ADDR);
-  if (stored->magic == CONFIG_FLASH_MAGIC && isConfigValid(stored->config, CONFIG_VERSION)) {
-    applyConfig(stored->config);
-    return;
-  }
+  const StoredOptions *storedOptions = reinterpret_cast<const StoredOptions *>(
+      CONFIG_FLASH_ADDR + OPTIONS_FLASH_OFFSET);
+  const bool hasConfig =
+      stored->magic == CONFIG_FLASH_MAGIC &&
+      isConfigValid(stored->config, CONFIG_VERSION);
+  const bool hasOptions =
+      storedOptions->magic == OPTIONS_FLASH_MAGIC &&
+      isDeviceOptionsValid(storedOptions->options);
+  const DeviceConfig cfg = hasConfig ? stored->config : defaultConfig();
+  const DeviceOptions options =
+      hasOptions ? storedOptions->options : defaultDeviceOptions();
 
-  const DeviceConfig cfg = defaultConfig();
-  if (!persistConfig(cfg)) {
+  if (hasConfig && hasOptions) {
     applyConfig(cfg);
+    applyDeviceOptions(options);
+  } else if (!persistState(cfg, options)) {
+    applyConfig(cfg);
+    applyDeviceOptions(options);
   }
 }
 
@@ -234,6 +306,24 @@ void setStatusResponse(uint8_t command, uint8_t status) {
   setFeatureResponse(command, payload, sizeof(payload));
 }
 
+void sendButtonEventReport(uint8_t state) {
+  constexpr uint8_t payloadLen = 1;
+  uint8_t frame[2 + 3 + payloadLen + 1] = {0};
+  frame[0] = FRAME_MAGIC_1;
+  frame[1] = FRAME_MAGIC_2;
+  frame[2] = PROTOCOL_VERSION;
+  frame[3] = CMD_BUTTON_EVENT;
+  frame[4] = payloadLen;
+  frame[5] = state;
+
+  uint8_t crc = 0;
+  for (uint8_t i = 2; i < sizeof(frame) - 1; i++) {
+    crc = crc8Update(crc, frame[i]);
+  }
+  frame[sizeof(frame) - 1] = crc;
+  USB_writeVendorInputReport(frame, sizeof(frame));
+}
+
 void setConfigResponse() {
   setFeatureResponse(CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(config));
 }
@@ -267,8 +357,19 @@ void setDeviceInfoResponse() {
     BOTTOM_CASE_B,
     TOP_CASE_SHADE_ENABLED,
     THIRD_ACTION_TRIGGER,
+    static_cast<uint8_t>(DEVICE_CAPABILITY_TURBO_MODE & 0xFF),
+    static_cast<uint8_t>(DEVICE_CAPABILITY_TURBO_MODE >> 8),
   };
   setFeatureResponse(CMD_DEVICE_INFO, payload, sizeof(payload));
+}
+
+void setDeviceOptionsResponse() {
+  const uint8_t payload[] = {
+    DEVICE_OPTIONS_VERSION,
+    static_cast<uint8_t>(deviceOptions.flags & 0xFF),
+    static_cast<uint8_t>(deviceOptions.flags >> 8),
+  };
+  setFeatureResponse(CMD_DEVICE_OPTIONS, payload, sizeof(payload));
 }
 
 bool readFeatureFrame(const uint8_t *report, uint8_t reportLen, uint8_t &command, const uint8_t *&payload, uint8_t &payloadLen) {
@@ -328,6 +429,29 @@ void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
   setStatusResponse(CMD_ACK, STATUS_OK);
 }
 
+void handleSetDeviceOptions(const uint8_t *payload, uint8_t payloadLen) {
+  if (payloadLen != 3 || payload[0] != DEVICE_OPTIONS_VERSION) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  const uint16_t flags =
+      static_cast<uint16_t>(payload[1]) |
+      (static_cast<uint16_t>(payload[2]) << 8);
+  if ((flags & ~SUPPORTED_OPTION_FLAGS) != 0) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  DeviceOptions options = {DEVICE_OPTIONS_VERSION, flags, 0};
+  if (!persistDeviceOptions(options)) {
+    setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  setStatusResponse(CMD_ACK, STATUS_OK);
+}
+
 void handleFeatureReports() {
   uint8_t report[FEATURE_REPORT_SIZE] = {0};
   const uint8_t len = USB_readFeatureReport(report, sizeof(report));
@@ -347,7 +471,7 @@ void handleFeatureReports() {
   } else if (command == CMD_SET_CONFIG) {
     handleSetConfig(payload, payloadLen);
   } else if (command == CMD_RESET_CONFIG) {
-    if (!persistConfig(defaultConfig())) {
+    if (!persistState(defaultConfig(), defaultDeviceOptions())) {
       setStatusResponse(CMD_ERROR, STATUS_BAD_PAYLOAD);
       return;
     }
@@ -356,6 +480,10 @@ void handleFeatureReports() {
     setPongResponse();
   } else if (command == CMD_GET_DEVICE_INFO) {
     setDeviceInfoResponse();
+  } else if (command == CMD_GET_DEVICE_OPTIONS) {
+    setDeviceOptionsResponse();
+  } else if (command == CMD_SET_DEVICE_OPTIONS) {
+    handleSetDeviceOptions(payload, payloadLen);
   } else {
     setStatusResponse(CMD_ERROR, STATUS_BAD_COMMAND);
   }
@@ -363,10 +491,10 @@ void handleFeatureReports() {
 
 void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-  loadConfig();
   stableState = digitalRead(BUTTON_PIN);
   lastRawState = stableState;
   lastRawChangeAt = millis();
+  loadConfig();
 
   Keyboard.begin();
   Keyboard.releaseAll();
@@ -378,7 +506,8 @@ void loop() {
   const int rawState = digitalRead(BUTTON_PIN);
   const uint32_t now = millis();
 
-  if (waitForSecondTap && stableState == HIGH && static_cast<int32_t>(now - singleTapDueAt) >= 0) {
+  if (waitForSecondTap && stableState == HIGH && rawState == HIGH &&
+      static_cast<int32_t>(now - singleTapDueAt) >= 0) {
     waitForSecondTap = false;
     sendGestureAction(config.singleTap);
     lastActionAt = now;
@@ -402,6 +531,21 @@ void loop() {
   }
 
   stableState = rawState;
+  if (turboModeEnabled() && stableState == LOW) {
+    waitForSecondTap = false;
+    longPressSent = true;
+    pressedAt = now;
+    sendGestureAction(config.singleTap);
+    lastActionAt = now;
+    sendButtonEventReport(BUTTON_PRESSED);
+    return;
+  }
+
+  sendButtonEventReport(stableState == LOW ? BUTTON_PRESSED : BUTTON_RELEASED);
+  if (turboModeEnabled()) {
+    return;
+  }
+
   if (stableState == LOW) {
     if (now - lastActionAt < REARM_MS) {
       return;
@@ -434,5 +578,5 @@ void loop() {
   }
 
   waitForSecondTap = true;
-  singleTapDueAt = now + DOUBLE_TAP_MS;
+  singleTapDueAt = pressedAt + DOUBLE_TAP_MS;
 }

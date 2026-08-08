@@ -9,6 +9,7 @@ const uint8_t*    USB_pDescr;
 volatile uint8_t hidIdleRate = 0;
 volatile uint8_t hidProtocol = 1;
 volatile uint8_t wch_hid_ep1_complete = 1; // Sync flag
+volatile uint8_t wch_hid_ep2_complete = 1;
 
 static volatile uint8_t feature_report_available = 0;
 static volatile uint8_t feature_report_len = 0;
@@ -37,6 +38,7 @@ static inline void USB_EP_init(void) {
   USBFSD->UEP2_TX_LEN = 0;
   
   wch_hid_ep1_complete = 1; // Ready
+  wch_hid_ep2_complete = 1;
 
   USB_ENUM_OK = 0;
   USB_Config  = 0;
@@ -94,6 +96,7 @@ void USB_init(void) {
     // 4. Init Core & Buffers
     memset(wch_usbhid_EP0_buffer, 0, EP0_SIZE + 2);
     memset(wch_usbhid_EP1_buffer, 0, EP1_SIZE + 2);
+    memset(wch_usbhid_EP2_buffer, 0, EP1_SIZE + 2);
     
     USBFSD->UEP4_1_MOD = 0;
     USBFSD->UEP2_3_MOD = 0;
@@ -310,6 +313,36 @@ uint32_t USB_write(const uint8_t* buf, uint32_t len) {
     return len;
 }
 
+uint32_t USB_writeVendorInputReport(const uint8_t* buf, uint32_t len) {
+    if(!USB_ENUM_OK) return 0;
+    if(len > 63) len = 63;
+
+    uint32_t timeout = 5000000;
+    while(!wch_hid_ep2_complete) {
+        if(--timeout == 0) break;
+        if(!USB_ENUM_OK) return 0;
+    }
+
+    wch_hid_ep2_complete = 0;
+    memset(wch_usbhid_EP2_buffer, 0, EP1_SIZE);
+    wch_usbhid_EP2_buffer[0] = 0x03;
+    memcpy(wch_usbhid_EP2_buffer + 1, buf, len);
+    USBFSD->UEP2_TX_LEN = EP1_SIZE;
+    USBFSD->UEP2_CTRL_H = (USBFSD->UEP2_CTRL_H & ~USBFS_UEP_T_RES_MASK) | USBFS_UEP_T_RES_ACK;
+
+    timeout = 5000000;
+    while(!wch_hid_ep2_complete) {
+        if(--timeout == 0) {
+            wch_hid_ep2_complete = 1;
+            USBFSD->UEP2_CTRL_H = (USBFSD->UEP2_CTRL_H & ~USBFS_UEP_T_RES_MASK) | USBFS_UEP_T_RES_NAK;
+            break;
+        }
+        if(!USB_ENUM_OK) return 0;
+    }
+
+    return len;
+}
+
 uint8_t USB_ready(void) {
     return USB_ENUM_OK;
 }
@@ -347,6 +380,7 @@ void USBFS_IRQHandler(void) {
             case 0: USB_EP0_IN(); break; 
             case 1: wch_hid_ep1_complete = 1; break; // Signal EP1 Done
             case 2:
+              wch_hid_ep2_complete = 1;
               USBFSD->UEP2_CTRL_H = (USBFSD->UEP2_CTRL_H & ~USBFS_UEP_T_RES_MASK) | USBFS_UEP_T_RES_NAK;
               break;
             default: break; 
