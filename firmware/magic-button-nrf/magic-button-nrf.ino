@@ -88,8 +88,9 @@ const uint32_t SUPERMINI_VCC_CUTOFF_GPIO = NRF_GPIO_PIN_MAP(0, 13);
 #endif
 
 const uint8_t CONFIG_VERSION = 1;
-const uint16_t MULTI_TAP_TIMEOUT = 250;
-const uint16_t QUICK_TAP_MAX_PRESS = 100;
+const uint16_t SECOND_TAP_TIMEOUT = 180;
+const uint16_t THIRD_TAP_TIMEOUT = 100;
+const uint16_t QUICK_TAP_MAX_PRESS = 160;
 const uint16_t LONG_PRESS_TIME = 600;
 const uint16_t CLEAR_BONDS_HOLD_MS = 10000;
 const uint32_t CONFIG_ADVERTISING_TIMEOUT_MS = 60UL * 1000UL;
@@ -1223,7 +1224,8 @@ void updateButton(uint32_t now) {
       clearBondsAndRestartAdvertising();
     }
 
-    if (tapCount > 0 && buttonState == HIGH && now - lastReleaseAt >= MULTI_TAP_TIMEOUT) {
+    const uint16_t tapTimeout = tapCount >= 2 ? THIRD_TAP_TIMEOUT : SECOND_TAP_TIMEOUT;
+    if (tapCount > 0 && buttonState == HIGH && now - lastReleaseAt >= tapTimeout) {
       if (tapCount >= 3) {
         startConfigAdvertising(now);
       } else {
