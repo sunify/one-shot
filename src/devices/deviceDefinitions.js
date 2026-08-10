@@ -1,0 +1,164 @@
+import OneShotPreview from '../components/OneShotPreview.vue'
+import {
+  ACTION_TYPES,
+  DEVICE_TYPES,
+  THIRD_ACTION_TRIGGERS,
+} from '../protocol'
+
+const defaultGestures = {
+  singleTap: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
+  doubleTap: { type: ACTION_TYPES.consumer, code: 0x00b5, modifiers: 0 },
+  tripleTap: { type: ACTION_TYPES.consumer, code: 0x00b6, modifiers: 0 },
+}
+
+const buttonBindings = [
+  {
+    key: 'singleTap',
+    label: ({ form }) => form.turboMode ? 'Нажатие' : 'Одиночное нажатие',
+    animation: { type: 'tap', count: 1 },
+  },
+  {
+    key: 'doubleTap',
+    label: 'Двойное нажатие',
+    animation: { type: 'tap', count: 2 },
+    when: ({ form }) => !form.turboMode,
+  },
+  {
+    key: 'tripleTap',
+    label: ({ thirdActionTrigger }) => thirdActionTrigger === THIRD_ACTION_TRIGGERS.longPress
+      ? 'Долгое нажатие'
+      : 'Тройное нажатие',
+    animation: ({ thirdActionTrigger }) => thirdActionTrigger === THIRD_ACTION_TRIGGERS.longPress
+      ? { type: 'press' }
+      : { type: 'tap', count: 3 },
+    when: ({ form }) => !form.turboMode,
+  },
+]
+
+const gesture = (key, offset) => ({ key, offset, type: 'gesture' })
+const byte = (key, offset, defaultValue = 0) => ({ key, offset, type: 'u8', defaultValue })
+
+const oneShotBaseFields = [
+  gesture('singleTap', 1),
+  gesture('doubleTap', 5),
+  gesture('tripleTap', 9),
+  byte('red', 13),
+  byte('green', 14),
+  byte('blue', 15),
+  byte('animationMode', 16),
+  byte('sleepTimeout', 17),
+]
+
+const commonDefaultInfo = {
+  capabilities: 0,
+}
+
+export const DEVICE_DEFINITIONS = {
+  [DEVICE_TYPES.oneShot]: {
+    type: DEVICE_TYPES.oneShot,
+    name: 'One Shot',
+    preview: OneShotPreview,
+    controls: [
+      {
+        id: 'main',
+        type: 'button',
+        label: 'Кнопка',
+        bindings: buttonBindings,
+      },
+      {
+        id: 'encoder',
+        type: 'encoder',
+        label: 'Энкодер',
+        when: ({ form }) => form.encoderCW != null,
+        bindings: [
+          { key: 'encoderCW', label: 'По часовой стрелке', capabilities: ['mouse'] },
+          { key: 'encoderCCW', label: 'Против часовой стрелки', capabilities: ['mouse'] },
+        ],
+      },
+    ],
+    configLayouts: [
+      {
+        payloadLength: 19,
+        version: 6,
+        fields: oneShotBaseFields,
+        when: (config) => config.encoderCW == null,
+      },
+      {
+        payloadLength: 28,
+        version: 6,
+        fields: [
+          ...oneShotBaseFields,
+          gesture('encoderCW', 18),
+          gesture('encoderCCW', 22),
+          byte('encoderSensitivity', 26),
+        ],
+        when: (config) => config.encoderCW != null,
+      },
+    ],
+    defaults: {
+      ...defaultGestures,
+      red: 250,
+      green: 255,
+      blue: 210,
+      animationMode: 1,
+      sleepTimeout: 0,
+      turboMode: false,
+    },
+    defaultInfo: {
+      ...commonDefaultInfo,
+      numLeds: 1,
+      keycap: '#ffffff',
+      topCase: '#ffffff',
+      topCaseShade: '#cf00ff',
+      bottomCase: '#ffffff',
+      thirdActionTrigger: THIRD_ACTION_TRIGGERS.tripleTap,
+    },
+  },
+  [DEVICE_TYPES.magicButton]: {
+    type: DEVICE_TYPES.magicButton,
+    name: 'Волшебная кнопка',
+    preview: OneShotPreview,
+    controls: [
+      {
+        id: 'main',
+        type: 'button',
+        label: 'Кнопка',
+        bindings: buttonBindings,
+      },
+    ],
+    configLayouts: [
+      {
+        payloadLength: 14,
+        version: 1,
+        fields: [
+          gesture('singleTap', 1),
+          gesture('doubleTap', 5),
+          gesture('tripleTap', 9),
+        ],
+      },
+    ],
+    defaults: {
+      ...defaultGestures,
+      turboMode: false,
+    },
+    defaultInfo: {
+      ...commonDefaultInfo,
+      numLeds: 0,
+      keycap: '#5ab9cf',
+      topCase: '#ffffff',
+      topCaseShade: '#ffffff',
+      bottomCase: '#ffffff',
+      thirdActionTrigger: THIRD_ACTION_TRIGGERS.longPress,
+    },
+  },
+}
+
+export const DEFAULT_DEVICE_DEFINITION = DEVICE_DEFINITIONS[DEVICE_TYPES.oneShot]
+
+export function getDeviceDefinition(deviceType) {
+  return DEVICE_DEFINITIONS[deviceType] ?? DEFAULT_DEVICE_DEFINITION
+}
+
+export function hasDeviceDefinition(deviceType) {
+  return DEVICE_DEFINITIONS[deviceType] != null
+}

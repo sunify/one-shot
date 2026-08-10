@@ -2,7 +2,6 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   BUTTON_EVENT_STATE,
   COMMANDS,
-  DEFAULT_DEVICE_INFO,
   DEVICE_TYPES,
   SERIAL_BAUD,
   STATUS,
@@ -14,6 +13,7 @@ import {
   encodeDeviceOptions,
   parseFrames,
 } from '../protocol'
+import { hasDeviceDefinition } from '../devices/deviceDefinitions'
 
 function mergeBuffers(current, chunk) {
   const merged = new Uint8Array(current.length + chunk.length)
@@ -120,6 +120,7 @@ export function useDeviceConnection({
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
+  deviceDefinition,
   deviceType,
   form,
   isDevicePressed,
@@ -228,7 +229,7 @@ export function useDeviceConnection({
 
         for (const frame of parsed.frames) {
           if (frame.command === COMMANDS.config) {
-            applyConfig(decodeConfig(frame.payload))
+            applyConfig(decodeConfig(frame.payload, deviceDefinition.value))
           } else if (frame.command === COMMANDS.buttonEvent) {
             isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
           } else if (frame.command === COMMANDS.error) {
@@ -457,7 +458,7 @@ export function useDeviceConnection({
         throw new Error(`Устройство вернуло ошибку ${frame.payload[0]}`)
       }
 
-      applyConfig(decodeConfig(frame.payload))
+      applyConfig(decodeConfig(frame.payload, deviceDefinition.value))
     })
   }
 
@@ -497,6 +498,9 @@ export function useDeviceConnection({
     }
 
     deviceType.value = frame.payload[1] ?? DEVICE_TYPES.oneShot
+    if (!hasDeviceDefinition(deviceType.value)) {
+      throw new Error(`Неподдерживаемый тип устройства: ${deviceType.value}`)
+    }
     form.deviceType = deviceType.value
 
     if (frame.payload.length > 2) {
@@ -526,7 +530,7 @@ export function useDeviceConnection({
       // фолбэчимся на дефолты по deviceType.
     }
 
-    const fallback = DEFAULT_DEVICE_INFO[deviceType.value] ?? DEFAULT_DEVICE_INFO[DEVICE_TYPES.oneShot]
+    const fallback = deviceDefinition.value.defaultInfo
     applyDeviceInfo(fallback)
   }
 
@@ -641,7 +645,7 @@ export function useDeviceConnection({
 
   async function saveConfig() {
     await withBusyState(async () => {
-      const payload = encodeConfig(form)
+      const payload = encodeConfig(form, deviceDefinition.value)
       const frame = await sendCommand(COMMANDS.setConfig, payload, [COMMANDS.ack, COMMANDS.error])
 
       if (frame.command === COMMANDS.error || frame.payload[0] !== STATUS.ok) {
@@ -674,7 +678,7 @@ export function useDeviceConnection({
         throw new Error(`Не удалось сбросить конфигурацию: ${frame.payload[0]}`)
       }
 
-      applyConfig(decodeConfig(frame.payload))
+      applyConfig(decodeConfig(frame.payload, deviceDefinition.value))
       await refreshDeviceOptions()
     })
   }

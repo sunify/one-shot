@@ -1,7 +1,7 @@
 import { computed } from 'vue'
-import { ANIMATION_MODES, DEVICE_TYPES } from '../protocol'
+import { ANIMATION_MODES } from '../protocol'
 
-export function useLightingPreview(form, deviceType, caseColors, supportsLighting) {
+export function useLightingPreview(form, caseColors, supportsLighting) {
   const hsl = computed(() => {
     const r = form.red / 255
     const g = form.green / 255
@@ -47,7 +47,7 @@ export function useLightingPreview(form, deviceType, caseColors, supportsLightin
       '--selection-color': caseColors.keycap,
     }
 
-    if (deviceType.value === DEVICE_TYPES.magicButton || !supportsLighting.value) {
+    if (!supportsLighting.value) {
       return base
     }
 

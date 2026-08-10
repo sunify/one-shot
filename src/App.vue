@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, watch, ref } from 'vue'
 import throttle from 'lodash-es/throttle'
-import DevicePreview from './components/DevicePreview.vue'
 import ColorControl from './components/controls/ColorControl.vue'
 import GestureField from './components/controls/GestureField.vue'
 import TurboModeSwitch from './components/controls/TurboModeSwitch.vue'
@@ -9,25 +8,26 @@ import PanelSection from './components/layout/PanelSection.vue'
 import { useConfiguratorState } from './composables/useConfiguratorState'
 import { useDeviceConnection } from './composables/useDeviceConnection'
 import { useLightingPreview } from './composables/useLightingPreview'
-import { HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS, getDeviceName } from './protocol'
+import { HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS } from './protocol'
 
 const {
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
   caseColors,
+  controls,
+  deviceDefinition,
   deviceType,
   form,
-  gestureFields,
   isDevicePressed,
   selectedColor,
   supportsLighting,
   supportsTurboMode,
   suppressAutoSave,
-  updateGesture,
+  updateBinding,
 } = useConfiguratorState()
 
-const { colorPreviewStyle, isRainbow } = useLightingPreview(form, deviceType, caseColors, supportsLighting)
+const { colorPreviewStyle, isRainbow } = useLightingPreview(form, caseColors, supportsLighting)
 
 const {
   connect,
@@ -43,6 +43,7 @@ const {
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
+  deviceDefinition,
   deviceType,
   form,
   isDevicePressed,
@@ -51,7 +52,7 @@ const {
 
 const appTitle = computed(() => {
   if (!isConnected.value) return 'Конфигуратор'
-  const name = productName.value || getDeviceName(deviceType.value)
+  const name = productName.value || deviceDefinition.value.name
   return `Конфигуратор<br />${name}`
 })
 
@@ -86,6 +87,7 @@ function handleInvalidHotkeyChar() {
 
 onBeforeUnmount(() => {
   scheduleAutoSave.cancel()
+  clearInterval(animationInterval)
   disconnect()
 })
 
@@ -110,9 +112,8 @@ watch(
 )
 
 const currentDeviceAnimation = ref(null);
-function handleGestureFieldOpen(gestureField) {
-  currentDeviceAnimation.value = gestureField.animation;
-  console.log(currentDeviceAnimation.value);
+function handleGestureFieldOpen(binding) {
+  currentDeviceAnimation.value = binding.animation;
 }
 
 function handleGestureFieldClose() {
@@ -164,7 +165,12 @@ watch(currentDeviceAnimation, () => {
     </section>
 
     <PanelSection :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
-      <DevicePreview :is-pressed="isDevicePressed" :is-rainbow="isRainbow" :width="250" />
+      <component
+        :is="deviceDefinition.preview"
+        :is-pressed="isDevicePressed"
+        :is-rainbow="isRainbow"
+        :width="250"
+      />
       <ColorControl
         v-if="isConnected && supportsLighting"
         v-model="selectedColor"
@@ -181,21 +187,26 @@ watch(currentDeviceAnimation, () => {
         v-model="form.turboMode"
       />
       <div class="grid">
-        <GestureField
-          v-for="gestureField in gestureFields"
-          :key="gestureField.key"
-          :gesture="form[gestureField.key]"
-          :gesture-options="gestureOptions"
-          :hotkey-select-value="HOTKEY_SELECT_VALUE"
-          :is-mac-like="isMacLike"
-          :label="gestureField.label"
-          :modifier-options="modifierOptions"
-          :show-mouse-options="gestureField.key.startsWith('encoder')"
-          @open="handleGestureFieldOpen(gestureField)"
-          @close="handleGestureFieldClose"
-          @invalid-hotkey-char="handleInvalidHotkeyChar"
-          @update:gesture="updateGesture(gestureField.key, $event)"
-        />
+        <section v-for="control in controls" :key="control.id" class="control-group">
+          <h2 v-if="controls.length > 1" class="control-label">{{ control.label }}</h2>
+          <div class="control-bindings">
+            <GestureField
+              v-for="binding in control.bindings"
+              :key="binding.key"
+              :gesture="form[binding.key]"
+              :gesture-options="gestureOptions"
+              :hotkey-select-value="HOTKEY_SELECT_VALUE"
+              :is-mac-like="isMacLike"
+              :label="binding.label"
+              :modifier-options="modifierOptions"
+              :show-mouse-options="binding.capabilities?.includes('mouse')"
+              @open="handleGestureFieldOpen(binding)"
+              @close="handleGestureFieldClose"
+              @invalid-hotkey-char="handleInvalidHotkeyChar"
+              @update:gesture="updateBinding(binding.key, $event)"
+            />
+          </div>
+        </section>
       </div>
     </PanelSection>
 
@@ -262,10 +273,20 @@ h2 {
 }
 
 .grid {
-  gap: 20px;
+  gap: 28px;
+  display: flex;
+  flex-direction: column;
+}
+
+.control-bindings {
   display: flex;
   flex-wrap: wrap;
+  gap: 20px;
   justify-content: center;
+}
+
+.control-label {
+  margin: 0 0 12px;
 }
 
 .footer {

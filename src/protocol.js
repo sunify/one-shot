@@ -379,74 +379,48 @@ function readGesture(view, offset) {
   }
 }
 
-export function encodeConfig(config) {
-  if (config.deviceType === DEVICE_TYPES.magicButton) {
-    const payload = new Uint8Array(13)
-    const view = new DataView(payload.buffer)
-
-    payload[0] = 1
-    writeGesture(view, 1, config.singleTap)
-    writeGesture(view, 5, config.doubleTap)
-    writeGesture(view, 9, config.tripleTap)
-
-    const crc = computeCrc(payload)
-    return new Uint8Array([...payload, crc])
+function writeConfigField(view, field, value) {
+  if (field.type === 'gesture') {
+    writeGesture(view, field.offset, value)
+    return
   }
 
-  const hasEncoder = config.encoderCW != null
-  const size = hasEncoder ? 27 : 18
-  const version = 6
-  const payload = new Uint8Array(size)
+  view.setUint8(field.offset, value ?? field.defaultValue ?? 0)
+}
+
+function readConfigField(view, field) {
+  if (field.type === 'gesture') {
+    return readGesture(view, field.offset)
+  }
+
+  return view.getUint8(field.offset)
+}
+
+export function encodeConfig(config, deviceDefinition) {
+  const layout = deviceDefinition?.configLayouts.find((candidate) => candidate.when?.(config) ?? true)
+  if (!layout) {
+    throw new Error(`No config layout for device type ${config.deviceType}`)
+  }
+
+  const payload = new Uint8Array(layout.payloadLength - 1)
   const view = new DataView(payload.buffer)
-
-  payload[0] = version
-  writeGesture(view, 1, config.singleTap)
-  writeGesture(view, 5, config.doubleTap)
-  writeGesture(view, 9, config.tripleTap)
-  payload[13] = config.red
-  payload[14] = config.green
-  payload[15] = config.blue
-  payload[16] = config.animationMode
-  payload[17] = config.sleepTimeout ?? 0
-
-  if (hasEncoder) {
-    writeGesture(view, 18, config.encoderCW)
-    writeGesture(view, 22, config.encoderCCW)
-    payload[26] = config.encoderSensitivity
+  payload[0] = layout.version
+  for (const field of layout.fields) {
+    writeConfigField(view, field, config[field.key])
   }
 
   const crc = computeCrc(payload)
   return new Uint8Array([...payload, crc])
 }
 
-export function decodeConfig(payload) {
-  if (payload.length === 14) {
-    const raw = payload.slice(0, 13)
-    const storedCrc = payload[13]
-    const computed = computeCrc(raw)
-
-    if (storedCrc !== computed) {
-      throw new Error('Config CRC mismatch')
-    }
-
-    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
-    return {
-      version: raw[0],
-      deviceType: DEVICE_TYPES.magicButton,
-      singleTap: readGesture(view, 1),
-      doubleTap: readGesture(view, 5),
-      tripleTap: readGesture(view, 9),
-    }
-  }
-
-  if (payload.length !== 19 && payload.length !== 28) {
+export function decodeConfig(payload, deviceDefinition) {
+  const layout = deviceDefinition?.configLayouts.find((candidate) => candidate.payloadLength === payload.length)
+  if (!layout) {
     throw new Error(`Unexpected config payload size: ${payload.length}`)
   }
 
-  const hasEncoder = payload.length === 28
-  const rawLen = hasEncoder ? 27 : 18
-  const raw = payload.slice(0, rawLen)
-  const storedCrc = payload[rawLen]
+  const raw = payload.slice(0, -1)
+  const storedCrc = payload[payload.length - 1]
   const computed = computeCrc(raw)
 
   if (storedCrc !== computed) {
@@ -456,21 +430,10 @@ export function decodeConfig(payload) {
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
   const config = {
     version: raw[0],
-    deviceType: DEVICE_TYPES.oneShot,
-    singleTap: readGesture(view, 1),
-    doubleTap: readGesture(view, 5),
-    tripleTap: readGesture(view, 9),
-    red: raw[13],
-    green: raw[14],
-    blue: raw[15],
-    animationMode: raw[16],
-    sleepTimeout: raw[17],
+    deviceType: deviceDefinition.type,
   }
-
-  if (hasEncoder) {
-    config.encoderCW = readGesture(view, 18)
-    config.encoderCCW = readGesture(view, 22)
-    config.encoderSensitivity = raw[26]
+  for (const field of layout.fields) {
+    config[field.key] = readConfigField(view, field)
   }
 
   return config
@@ -593,14 +556,6 @@ export function hotkeySelectLabel(code, modifiers = 0) {
   return hotkeyCharFromCode(code, modifiers) || ''
 }
 
-export function getDeviceName(deviceType) {
-  if (deviceType === DEVICE_TYPES.magicButton) {
-    return 'Волшебной кнопки'
-  }
-
-  return 'One Shot'
-}
-
 function rgbToHex(r, g, b) {
   return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`
 }
@@ -637,25 +592,4 @@ export function decodeDeviceOptions(payload) {
   return {
     turboMode: (flags & DEVICE_OPTION_FLAGS.turboMode) !== 0,
   }
-}
-
-export const DEFAULT_DEVICE_INFO = {
-  [DEVICE_TYPES.oneShot]: {
-    numLeds: 1,
-    keycap: '#ffffff',
-    topCase: '#ffffff',
-    topCaseShade: '#cf00ff',
-    bottomCase: '#ffffff',
-    thirdActionTrigger: THIRD_ACTION_TRIGGERS.tripleTap,
-    capabilities: 0,
-  },
-  [DEVICE_TYPES.magicButton]: {
-    numLeds: 0,
-    keycap: '#5ab9cf',
-    topCase: '#ffffff',
-    topCaseShade: '#ffffff',
-    bottomCase: '#ffffff',
-    thirdActionTrigger: THIRD_ACTION_TRIGGERS.longPress,
-    capabilities: 0,
-  },
 }

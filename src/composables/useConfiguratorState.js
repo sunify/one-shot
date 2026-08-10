@@ -1,10 +1,10 @@
 import { computed, reactive, ref } from 'vue'
 import {
-  ACTION_TYPES,
   DEVICE_CAPABILITIES,
   DEVICE_TYPES,
   THIRD_ACTION_TRIGGERS,
 } from '../protocol'
+import { getDeviceDefinition } from '../devices/deviceDefinitions'
 
 function cloneGesture(gesture) {
   return {
@@ -16,6 +16,7 @@ function cloneGesture(gesture) {
 
 export function useConfiguratorState() {
   const deviceType = ref(DEVICE_TYPES.oneShot)
+  const deviceDefinition = computed(() => getDeviceDefinition(deviceType.value))
   const isDevicePressed = ref(false)
   const suppressAutoSave = ref(false)
   const numLeds = ref(1)
@@ -30,15 +31,7 @@ export function useConfiguratorState() {
 
   const form = reactive({
     deviceType: DEVICE_TYPES.oneShot,
-    singleTap: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
-    doubleTap: { type: ACTION_TYPES.consumer, code: 0x00b5, modifiers: 0 },
-    tripleTap: { type: ACTION_TYPES.consumer, code: 0x00b6, modifiers: 0 },
-    red: 250,
-    green: 255,
-    blue: 210,
-    animationMode: 1,
-    sleepTimeout: 0,
-    turboMode: false,
+    ...deviceDefinition.value.defaults,
   })
 
   const selectedColor = computed({
@@ -56,79 +49,59 @@ export function useConfiguratorState() {
   const supportsTurboMode = computed(
     () => (deviceCapabilities.value & DEVICE_CAPABILITIES.turboMode) !== 0,
   )
-  const hasEncoder = computed(() => form.encoderCW != null)
 
-  const gestureFields = computed(() => {
-    const fields = [
-      {
-        key: 'singleTap',
-        label: form.turboMode ? 'Нажатие' : 'Одиночное нажатие',
-        animation: { type: 'tap', count: 1 },
-      },
-    ]
-
-    if (!form.turboMode) {
-      fields.push(
-        { key: 'doubleTap', label: 'Двойное нажатие', animation: { type: 'tap', count: 2 } },
-        {
-          key: 'tripleTap',
-          label: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress ? 'Долгое нажатие' : 'Тройное нажатие',
-          animation: thirdActionTrigger.value === THIRD_ACTION_TRIGGERS.longPress
-            ? { type: 'press' }
-            : { type: 'tap', count: 3 },
-        },
-      )
+  const controls = computed(() => {
+    const context = {
+      form,
+      thirdActionTrigger: thirdActionTrigger.value,
     }
+    const resolve = (value) => typeof value === 'function' ? value(context) : value
 
-    if (hasEncoder.value) {
-      fields.push(
-        { key: 'encoderCW', label: 'Энкодер →', animation: null },
-        { key: 'encoderCCW', label: 'Энкодер ←', animation: null },
-      )
-    }
-
-    return fields
+    return deviceDefinition.value.controls
+      .filter((control) => control.when?.(context) ?? true)
+      .map((control) => ({
+        ...control,
+        bindings: control.bindings
+          .filter((binding) => binding.when?.(context) ?? true)
+          .map((binding) => ({
+            ...binding,
+            label: resolve(binding.label),
+            animation: resolve(binding.animation),
+          })),
+      }))
   })
 
   function applyConfig(config) {
     suppressAutoSave.value = true
     deviceType.value = config.deviceType ?? DEVICE_TYPES.oneShot
     form.deviceType = deviceType.value
-    form.singleTap = cloneGesture(config.singleTap)
-    form.doubleTap = cloneGesture(config.doubleTap)
-    form.tripleTap = cloneGesture(config.tripleTap)
 
-    if (deviceType.value === DEVICE_TYPES.oneShot) {
-      form.red = config.red
-      form.green = config.green
-      form.blue = config.blue
-      form.animationMode = config.animationMode
-      form.sleepTimeout = config.sleepTimeout ?? 0
+    const bindingKeys = new Set(
+      deviceDefinition.value.controls.flatMap((control) => control.bindings.map((binding) => binding.key)),
+    )
+    for (const key of bindingKeys) {
+      if (config[key]) {
+        form[key] = cloneGesture(config[key])
+      } else {
+        delete form[key]
+      }
     }
 
-    if (config.encoderCW) {
-      form.encoderCW = cloneGesture(config.encoderCW)
-      form.encoderCCW = cloneGesture(config.encoderCCW)
-      form.encoderSensitivity = config.encoderSensitivity
-    } else {
-      delete form.encoderCW
-      delete form.encoderCCW
-      delete form.encoderSensitivity
+    for (const field of deviceDefinition.value.configLayouts.flatMap((layout) => layout.fields)) {
+      if (field.type !== 'gesture' && config[field.key] != null) {
+        form[field.key] = config[field.key]
+      }
     }
   }
 
-  function updateGesture(field, gesture) {
+  function updateBinding(field, gesture) {
     form[field] = gesture
   }
 
   function applyDeviceInfo(info) {
     numLeds.value = info.numLeds
     deviceCapabilities.value = info.capabilities ?? 0
-    thirdActionTrigger.value = info.thirdActionTrigger ?? (
-      deviceType.value === DEVICE_TYPES.magicButton
-        ? THIRD_ACTION_TRIGGERS.longPress
-        : THIRD_ACTION_TRIGGERS.tripleTap
-    )
+    thirdActionTrigger.value = info.thirdActionTrigger ?? deviceDefinition.value.defaultInfo.thirdActionTrigger
     caseColors.keycap = info.keycap
     caseColors.topCase = info.topCase
     caseColors.topCaseShade = info.topCaseShade
@@ -145,10 +118,10 @@ export function useConfiguratorState() {
     applyDeviceInfo,
     applyDeviceOptions,
     caseColors,
+    controls,
+    deviceDefinition,
     deviceType,
     form,
-    gestureFields,
-    hasEncoder,
     isDevicePressed,
     numLeds,
     selectedColor,
@@ -156,6 +129,6 @@ export function useConfiguratorState() {
     supportsTurboMode,
     suppressAutoSave,
     thirdActionTrigger,
-    updateGesture,
+    updateBinding,
   }
 }
