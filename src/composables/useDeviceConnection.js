@@ -45,6 +45,15 @@ function delay(ms) {
   })
 }
 
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs)
+    }),
+  ])
+}
+
 function dataViewToUint8Array(view) {
   return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
 }
@@ -262,7 +271,8 @@ export function useDeviceConnection({
   function handleHidInputReport(event) {
     const report = dataViewToUint8Array(event.data)
 
-    if (event.reportId !== 3) {
+    const expectedReportId = hidMode.value === 'raw' ? 0 : 3
+    if (event.reportId !== expectedReportId) {
       return
     }
 
@@ -545,6 +555,58 @@ export function useDeviceConnection({
     applyDeviceInfo(fallback)
   }
 
+  async function finishHidConnection(device) {
+    const mode = getHidMode(device)
+    if (!mode) {
+      return false
+    }
+
+    hidDevice.value = device
+    hidMode.value = mode
+    statusText.value = 'Открываем устройство...'
+    await withTimeout(
+      device.opened ? Promise.resolve() : device.open(),
+      5000,
+      'Устройство разрешено, но не отвечает при открытии',
+    )
+    transport.value = 'hid'
+    device.oninputreport = handleHidInputReport
+    hasRememberedPort.value = true
+    hasAvailablePort.value = true
+    statusText.value = 'Проверяем устройство...'
+    await verifyDevice()
+    await fetchDeviceInfo()
+    await refreshConfig()
+    await refreshDeviceOptions()
+    isConnected.value = true
+    statusText.value = 'Подключено'
+    return true
+  }
+
+  async function finishSerialConnection(serialPort) {
+    port.value = serialPort
+    statusText.value = 'Открываем порт...'
+    await withTimeout(
+      openPortWithRetry(serialPort),
+      5000,
+      'Порт разрешён, но не открылся',
+    )
+    reader.value = serialPort.readable.getReader()
+    writer.value = serialPort.writable.getWriter()
+    transport.value = 'serial'
+    receiveBuffer.value = new Uint8Array()
+    hasRememberedPort.value = true
+    hasAvailablePort.value = true
+    statusText.value = 'Проверяем устройство...'
+    void readLoop()
+    await verifyDevice()
+    await fetchDeviceInfo()
+    await refreshConfig()
+    await refreshDeviceOptions()
+    isConnected.value = true
+    statusText.value = 'Подключено'
+  }
+
   async function connect() {
     if (!('serial' in navigator) && !('hid' in navigator)) {
       statusText.value = 'Конфигуратор работает только в Chromium-браузерах'
@@ -558,7 +620,24 @@ export function useDeviceConnection({
         await disconnect()
       }
 
+      if ('serial' in navigator) {
+        const grantedPorts = await navigator.serial.getPorts()
+        if (grantedPorts.length === 1) {
+          await finishSerialConnection(grantedPorts[0])
+          return
+        }
+      }
+
       if ('hid' in navigator) {
+        const grantedDevices = await navigator.hid.getDevices()
+        const grantedDevice = grantedDevices.find((device) => getHidMode(device))
+        if (grantedDevice && await finishHidConnection(grantedDevice)) {
+          return
+        }
+      }
+
+      if ('hid' in navigator) {
+        statusText.value = 'Выберите устройство в окне браузера'
         console.debug('[webhid] requesting device')
         const devices = await navigator.hid.requestDevice({
           filters: [
@@ -578,49 +657,18 @@ export function useDeviceConnection({
         })))
 
         if (devices.length > 0) {
-          hidDevice.value = devices[0]
-          try {
-            await hidDevice.value.open()
-            console.debug('[webhid] open ok', {
-              productName: hidDevice.value.productName,
-              opened: hidDevice.value.opened,
-              collections: hidDevice.value.collections,
-            })
-          } catch (error) {
-            console.error('[webhid] open failed', error)
-            throw error
-          }
-          transport.value = 'hid'
-          hidMode.value = getHidMode(hidDevice.value)
-          if (!hidMode.value) {
-            console.warn('[webhid] selected HID device has no supported collection, falling back to serial', {
-              productName: hidDevice.value.productName,
-              collections: hidDevice.value.collections,
-            })
-            await hidDevice.value.close()
-            hidDevice.value = null
-            transport.value = null
-          } else {
-            console.debug('[webhid] mode', hidMode.value)
-            hidDevice.value.oninputreport = handleHidInputReport
-          }
-          if (!hidMode.value) {
-            // Continue to WebSerial selection below.
-          } else {
-          hasRememberedPort.value = true
-          hasAvailablePort.value = true
-          statusText.value = ''
-          await verifyDevice()
-          await fetchDeviceInfo()
-          await refreshConfig()
-          await refreshDeviceOptions()
-          isConnected.value = true
-          return
+          if (await finishHidConnection(devices[0])) {
+            return
           }
         }
       }
 
-      port.value = await navigator.serial.requestPort({
+      if (!('serial' in navigator)) {
+        throw new Error('Выбранное HID-устройство не поддерживается')
+      }
+
+      statusText.value = 'Выберите порт в окне браузера'
+      const selectedPort = await navigator.serial.requestPort({
         filters: [
           { usbVendorId: 0x2341 }, // Arduino
           { usbVendorId: 0x1B4F }, // SparkFun
@@ -630,20 +678,7 @@ export function useDeviceConnection({
           { usbVendorId: 0x303A }, // Espressif
         ],
       })
-      await openPortWithRetry(port.value)
-      reader.value = port.value.readable.getReader()
-      writer.value = port.value.writable.getWriter()
-      transport.value = 'serial'
-      receiveBuffer.value = new Uint8Array()
-      hasRememberedPort.value = true
-      hasAvailablePort.value = true
-      statusText.value = ''
-      void readLoop()
-      await verifyDevice()
-      await fetchDeviceInfo()
-      await refreshConfig()
-      await refreshDeviceOptions()
-      isConnected.value = true
+      await finishSerialConnection(selectedPort)
     } catch (error) {
       if (port.value || hidDevice.value) {
         await disconnect({ preserveStatus: true })
