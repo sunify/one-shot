@@ -165,18 +165,18 @@ export const DEVICE_DEFINITIONS = {
     preview: BebopPreview,
     controls: [
       {
-        id: 'left',
-        protocolId: 1,
-        type: 'button',
-        label: 'Peppa',
-        bindings: prefixedButtonBindings('left'),
-      },
-      {
         id: 'right',
         protocolId: 0,
         type: 'button',
-        label: 'Bebop',
+        label: 'Peppa',
         bindings: prefixedButtonBindings('right'),
+      },
+      {
+        id: 'left',
+        protocolId: 1,
+        type: 'button',
+        label: 'Bebop',
+        bindings: prefixedButtonBindings('left'),
       },
     ],
     configLayouts: [
