@@ -166,7 +166,7 @@ export const DEVICE_DEFINITIONS = {
     controls: [
       {
         id: 'right',
-        protocolId: 0,
+        protocolId: 1,
         previewId: 'left',
         type: 'button',
         label: 'Peppa',
@@ -174,7 +174,7 @@ export const DEVICE_DEFINITIONS = {
       },
       {
         id: 'left',
-        protocolId: 1,
+        protocolId: 0,
         previewId: 'right',
         type: 'button',
         label: 'Bebop',
