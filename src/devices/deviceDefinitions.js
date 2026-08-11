@@ -166,14 +166,14 @@ export const DEVICE_DEFINITIONS = {
     controls: [
       {
         id: 'left',
-        protocolId: 0,
+        protocolId: 1,
         type: 'button',
         label: 'Peppa',
         bindings: prefixedButtonBindings('left'),
       },
       {
         id: 'right',
-        protocolId: 1,
+        protocolId: 0,
         type: 'button',
         label: 'Bebop',
         bindings: prefixedButtonBindings('right'),

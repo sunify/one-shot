@@ -39,6 +39,7 @@ const emit = defineEmits(['update:modelValue'])
   margin: 0 auto 28px;
   cursor: pointer;
   user-select: none;
+  width: fit-content;
 }
 
 .turbo-copy {
