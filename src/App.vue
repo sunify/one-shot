@@ -11,10 +11,13 @@ import { useLightingPreview } from './composables/useLightingPreview'
 import { HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS } from './protocol'
 
 const {
+  applyButtonEvent,
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
   caseColors,
+  clearButtonEvents,
+  controlPressStates,
   controls,
   deviceDefinition,
   deviceType,
@@ -24,6 +27,7 @@ const {
   supportsLighting,
   supportsTurboMode,
   suppressAutoSave,
+  setPreviewControlPressed,
   updateBinding,
 } = useConfiguratorState()
 
@@ -40,13 +44,14 @@ const {
   saveConfig,
   statusText,
 } = useDeviceConnection({
+  applyButtonEvent,
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
+  clearButtonEvents,
   deviceDefinition,
   deviceType,
   form,
-  isDevicePressed,
   supportsTurboMode,
 })
 
@@ -111,13 +116,25 @@ watch(
   () => handleGestureFieldClose(),
 )
 
-const currentDeviceAnimation = ref(null);
+const currentPreviewBinding = ref(null);
 function handleGestureFieldOpen(binding) {
-  currentDeviceAnimation.value = binding.animation;
+  currentPreviewBinding.value = binding.animation ? binding : null;
 }
 
 function handleGestureFieldClose() {
-  currentDeviceAnimation.value = null;
+  currentPreviewBinding.value = null;
+}
+
+let previewPressTimeout
+function handlePreviewPress(controlId = 'main') {
+  if (previewPressTimeout) {
+    clearTimeout(previewPressTimeout)
+  }
+  setPreviewControlPressed(controlId, true)
+  previewPressTimeout = window.setTimeout(() => {
+    setPreviewControlPressed(controlId, false)
+    previewPressTimeout = null
+  }, 120)
 }
 
 function delay(ms) {
@@ -125,32 +142,38 @@ function delay(ms) {
     window.setTimeout(resolve, ms)
   })
 }
-async function runAnimation(animation) {
+async function runAnimation(binding) {
+  const { animation, controlId } = binding
   if (animation.type === 'tap') {
     for (let i = 0; i < animation.count; i += 1) {
-      isDevicePressed.value = true;
+      setPreviewControlPressed(controlId, true);
       await delay(100);
-      isDevicePressed.value = false;
+      setPreviewControlPressed(controlId, false);
       await delay(200);
     }
   } else if (animation.type === 'press') {
-    isDevicePressed.value = true;
+    setPreviewControlPressed(controlId, true);
     await delay(700);
-    isDevicePressed.value = false;
+    setPreviewControlPressed(controlId, false);
   }
 }
 
 let animationInterval;
-watch(currentDeviceAnimation, () => {
+watch(currentPreviewBinding, (binding, previousBinding) => {
   clearInterval(animationInterval);
-  if (currentDeviceAnimation.value !== null) {
+  if (previousBinding) {
+    setPreviewControlPressed(previousBinding.controlId, false)
+  }
+  if (binding !== null) {
     const runFrame = () => {
-      runAnimation(currentDeviceAnimation.value);
+      runAnimation(binding);
     };
     runFrame();
     animationInterval = setInterval(runFrame, 2000);
   } else {
-    isDevicePressed.value = false;
+    for (const control of controls.value) {
+      setPreviewControlPressed(control.id, false)
+    }
   }
 });
 </script>
@@ -169,7 +192,9 @@ watch(currentDeviceAnimation, () => {
         :is="deviceDefinition.preview"
         :is-pressed="isDevicePressed"
         :is-rainbow="isRainbow"
+        :pressed-controls="controlPressStates"
         :width="250"
+        @press="handlePreviewPress"
       />
       <ColorControl
         v-if="isConnected && supportsLighting"
@@ -220,7 +245,9 @@ watch(currentDeviceAnimation, () => {
 .shell {
   min-height: 100vh;
   position: relative;
-  width: 700px;
+  min-width: 700px;
+  max-width: 1100px;
+  width: 100%;
   margin: 0;
   padding: 10vh 100px 64px 100px;
   text-align: center;
@@ -275,7 +302,8 @@ h2 {
 .grid {
   gap: 28px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .control-bindings {
@@ -298,5 +326,9 @@ h2 {
   left: 0;
   right: 0;
   opacity: 0.3;
+}
+
+.control-group {
+  max-width: 500px;
 }
 </style>

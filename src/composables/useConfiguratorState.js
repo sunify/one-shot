@@ -17,7 +17,8 @@ function cloneGesture(gesture) {
 export function useConfiguratorState() {
   const deviceType = ref(DEVICE_TYPES.oneShot)
   const deviceDefinition = computed(() => getDeviceDefinition(deviceType.value))
-  const isDevicePressed = ref(false)
+  const pressedControls = reactive({})
+  const previewPressedControls = reactive({})
   const suppressAutoSave = ref(false)
   const numLeds = ref(1)
   const deviceCapabilities = ref(0)
@@ -65,11 +66,20 @@ export function useConfiguratorState() {
           .filter((binding) => binding.when?.(context) ?? true)
           .map((binding) => ({
             ...binding,
+            controlId: control.id,
             label: resolve(binding.label),
             animation: resolve(binding.animation),
           })),
       }))
   })
+
+  const controlPressStates = computed(() => Object.fromEntries(
+    deviceDefinition.value.controls.map((control) => [
+      control.id,
+      pressedControls[control.id] === true || previewPressedControls[control.id] === true,
+    ]),
+  ))
+  const isDevicePressed = computed(() => Object.values(controlPressStates.value).some(Boolean))
 
   function applyConfig(config) {
     suppressAutoSave.value = true
@@ -98,6 +108,29 @@ export function useConfiguratorState() {
     form[field] = gesture
   }
 
+  function applyButtonEvent(protocolId, isPressed) {
+    const control = deviceDefinition.value.controls.find(
+      (candidate, index) => (candidate.protocolId ?? index) === protocolId,
+    )
+    if (control) {
+      pressedControls[control.id] = isPressed
+    }
+  }
+
+  function clearButtonEvents() {
+    for (const key of Object.keys(pressedControls)) {
+      delete pressedControls[key]
+    }
+  }
+
+  function setPreviewControlPressed(controlId, isPressed) {
+    if (isPressed) {
+      previewPressedControls[controlId] = true
+    } else {
+      delete previewPressedControls[controlId]
+    }
+  }
+
   function applyDeviceInfo(info) {
     numLeds.value = info.numLeds
     deviceCapabilities.value = info.capabilities ?? 0
@@ -114,10 +147,13 @@ export function useConfiguratorState() {
   }
 
   return {
+    applyButtonEvent,
     applyConfig,
     applyDeviceInfo,
     applyDeviceOptions,
     caseColors,
+    clearButtonEvents,
+    controlPressStates,
     controls,
     deviceDefinition,
     deviceType,
@@ -128,6 +164,7 @@ export function useConfiguratorState() {
     supportsLighting,
     supportsTurboMode,
     suppressAutoSave,
+    setPreviewControlPressed,
     thirdActionTrigger,
     updateBinding,
   }

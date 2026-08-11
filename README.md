@@ -3,6 +3,7 @@
 Репозиторий с двумя родственными устройствами и общим web-конфигуратором по Serial:
 
 - `firmware/one-shot/one-shot.ino` — Leonardo / Pro Micro, три тапа и подсветка
+- профиль `bebop` той же прошивки — Pro Micro с двумя независимыми кнопками
 - `firmware/magic-button/magic-button.ino` — ESP32-S3, одиночное / двойное / долгое нажатие, без подсветки
 
 ## Web
@@ -39,6 +40,15 @@ USB_MANUFACTURER_MAGIC_BUTTON=Huntflow
 ```bash
 npm run firmware:compile
 ```
+
+Сборка `Bebop`:
+
+```bash
+npm run firmware:compile:bebop
+```
+
+Профиль `profiles/bebop.json` использует Arduino pins `3` (`PD0`) и `5` (`PC6`),
+а pin `4` (`PD4`) — для аппаратного reset при удержании обеих кнопок.
 
 Экспорт бинарников `One Shot`:
 

@@ -84,6 +84,7 @@ export const MOUSE_OPTIONS = [
 export const DEVICE_TYPES = {
   oneShot: 0x01,
   magicButton: 0x02,
+  bebop: 0x03,
 }
 
 export const MODIFIERS = {

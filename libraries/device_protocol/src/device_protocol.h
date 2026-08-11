@@ -10,6 +10,7 @@ const uint8_t PROTOCOL_VERSION = 1;
 
 const uint8_t DEVICE_TYPE_ONE_SHOT = 0x01;
 const uint8_t DEVICE_TYPE_MAGIC_BUTTON = 0x02;
+const uint8_t DEVICE_TYPE_BEBOP = 0x03;
 
 const uint16_t DEVICE_CAPABILITY_TURBO_MODE = 0x0001;
 const uint16_t DEVICE_OPTION_TURBO_MODE = 0x0001;
@@ -34,6 +35,7 @@ enum Command : uint8_t {
   CMD_ACK = 0x82,
   CMD_PONG = 0x84,
   CMD_DEVICE_INFO = 0x85,
+  CMD_DEVICE_OPTIONS = 0x86,
   CMD_DEVICE_OPTIONS = 0x86,
   CMD_BUTTON_EVENT = 0x90,
   CMD_ERROR = 0xFF

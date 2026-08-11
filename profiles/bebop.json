@@ -1,0 +1,13 @@
+{
+  "button_ground_pin": "-1",
+  "button_input_pin": "3",
+  "button2_input_pin": "5",
+  "reset_pin": "4",
+  "num_buttons": 2,
+  "data_pin": "A3",
+  "num_leds": 0,
+  "third_action_trigger": "triple_tap",
+  "rotary_enabled": false,
+  "usb_product": "Bebop",
+  "usb_manufacturer": "lunyov"
+}

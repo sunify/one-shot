@@ -7,6 +7,7 @@
 #endif
 #include <HID-Project.h>
 #include <EEPROM.h>
+#include <stddef.h>
 #include "device_protocol.h"
 
 #ifndef BTN_GROUND_PIN
@@ -14,6 +15,17 @@
 #endif
 #ifndef BTN_INPUT_PIN
 #define BTN_INPUT_PIN 10
+#endif
+#ifndef NUM_BUTTONS
+#define NUM_BUTTONS 1
+#endif
+#if NUM_BUTTONS == 2
+#ifndef BTN2_INPUT_PIN
+#define BTN2_INPUT_PIN 5
+#endif
+#ifndef RESET_PIN
+#define RESET_PIN 4
+#endif
 #endif
 
 #ifndef DATA_PIN
@@ -89,6 +101,11 @@ struct __attribute__((packed)) DeviceConfig {
   GestureAction singleTap;
   GestureAction doubleTap;
   GestureAction tripleTap;
+#if NUM_BUTTONS == 2
+  GestureAction button2SingleTap;
+  GestureAction button2DoubleTap;
+  GestureAction button2TripleTap;
+#endif
   uint8_t red;
   uint8_t green;
   uint8_t blue;
@@ -102,19 +119,72 @@ struct __attribute__((packed)) DeviceConfig {
   uint8_t crc;
 };
 
+struct __attribute__((packed)) DeviceOptions {
+  uint8_t version;
+  uint16_t flags;
+  uint8_t crc;
+};
+
+static_assert(sizeof(DeviceOptions) == 4, "Unexpected device options size");
+
+#if NUM_BUTTONS == 2
+static_assert(sizeof(DeviceConfig) == 31, "Unexpected Bebop config size");
+static_assert(offsetof(DeviceConfig, button2SingleTap) == 13, "Unexpected Bebop button 2 offset");
+static_assert(offsetof(DeviceConfig, red) == 25, "Unexpected Bebop lighting offset");
+static_assert(offsetof(DeviceConfig, crc) == 30, "Unexpected Bebop CRC offset");
+#elif defined(ROTARY_ENABLED)
+static_assert(sizeof(DeviceConfig) == 28, "Unexpected One Shot rotary config size");
+static_assert(offsetof(DeviceConfig, encoderCW) == 18, "Unexpected One Shot encoder offset");
+#else
+static_assert(sizeof(DeviceConfig) == 19, "Unexpected One Shot config size");
+static_assert(offsetof(DeviceConfig, red) == 13, "Unexpected One Shot lighting offset");
+#endif
+
+#if NUM_BUTTONS == 2
+const uint8_t CONFIG_VERSION = 1;
+const uint8_t DEVICE_TYPE = DEVICE_TYPE_BEBOP;
+#else
 const uint8_t CONFIG_VERSION = 6;
+const uint8_t DEVICE_TYPE = DEVICE_TYPE_ONE_SHOT;
+#endif
 const int EEPROM_ADDRESS = 0;
+const int EEPROM_OPTIONS_ADDRESS = EEPROM_ADDRESS + sizeof(DeviceConfig);
+const uint8_t DEVICE_OPTIONS_VERSION = 1;
+#if NUM_BUTTONS == 2
+const uint16_t DEVICE_CAPABILITIES = DEVICE_CAPABILITY_TURBO_MODE;
+const uint16_t SUPPORTED_OPTION_FLAGS = DEVICE_OPTION_TURBO_MODE;
+#else
+const uint16_t DEVICE_CAPABILITIES = 0;
+const uint16_t SUPPORTED_OPTION_FLAGS = 0;
+#endif
 DeviceConfig config;
+DeviceOptions deviceOptions;
 uint8_t rawHidReport[RAW_HID_REPORT_SIZE];
 
-bool lastState = HIGH;
-uint32_t lastChange = 0;
+struct ButtonRuntime {
+  bool lastState;
+  uint32_t lastChange;
+  uint32_t pressStart;
+  uint32_t lastRelease;
+  uint8_t tapCount;
+  bool longPressHandled;
+};
 
-uint32_t pressStart = 0;
-uint32_t lastRelease = 0;
+ButtonRuntime buttons[NUM_BUTTONS];
+const uint8_t buttonPins[NUM_BUTTONS] = {
+#if NUM_BUTTONS == 2
+  BTN2_INPUT_PIN,
+  BTN_INPUT_PIN,
+#else
+  BTN_INPUT_PIN,
+#endif
+};
 
-uint8_t tapCount = 0;
-bool longPressHandled = false;
+#if NUM_BUTTONS == 2
+const uint16_t RESET_DELAY = 1000;
+uint32_t resetStartedAt = 0;
+bool resetChordActive = false;
+#endif
 
 uint8_t brightnessStep = 0;
 uint8_t brightnessLevels[] = {255, 191, 128, 64, 0};
@@ -151,6 +221,12 @@ DeviceConfig defaultConfig() {
   cfg.singleTap = {ACTION_TYPE_CONSUMER, MEDIA_PLAY_PAUSE, 0};
   cfg.doubleTap = {ACTION_TYPE_CONSUMER, MEDIA_NEXT, 0};
   cfg.tripleTap = {ACTION_TYPE_CONSUMER, MEDIA_PREVIOUS, 0};
+#if NUM_BUTTONS == 2
+  cfg.singleTap = {ACTION_TYPE_HOTKEY, 0x05, 0};
+  cfg.button2SingleTap = {ACTION_TYPE_HOTKEY, 0x13, 0};
+  cfg.button2DoubleTap = {ACTION_TYPE_CONSUMER, MEDIA_NEXT, 0};
+  cfg.button2TripleTap = {ACTION_TYPE_CONSUMER, MEDIA_PREVIOUS, 0};
+#endif
   cfg.red = 250;
   cfg.green = 255;
   cfg.blue = 210;
@@ -169,11 +245,42 @@ void applyConfig(const DeviceConfig &cfg) {
   config = cfg;
 }
 
+DeviceOptions defaultDeviceOptions() {
+  DeviceOptions options = {DEVICE_OPTIONS_VERSION, 0, 0};
+  options.crc = computeConfigCrc(options);
+  return options;
+}
+
+bool isDeviceOptionsValid(const DeviceOptions &options) {
+  return isConfigValid(options, DEVICE_OPTIONS_VERSION) &&
+         (options.flags & ~SUPPORTED_OPTION_FLAGS) == 0;
+}
+
+void applyDeviceOptions(const DeviceOptions &options) {
+  deviceOptions = options;
+  for (uint8_t index = 0; index < NUM_BUTTONS; index++) {
+    buttons[index].tapCount = 0;
+    buttons[index].longPressHandled = buttons[index].lastState == LOW;
+  }
+}
+
+bool turboModeEnabled() {
+  return (deviceOptions.flags & DEVICE_OPTION_TURBO_MODE) != 0;
+}
+
 void persistConfig(DeviceConfig &cfg) {
   cfg.version = CONFIG_VERSION;
   cfg.crc = computeConfigCrc(cfg);
   EEPROM.put(EEPROM_ADDRESS, cfg);
   applyConfig(cfg);
+}
+
+void persistDeviceOptions(DeviceOptions &options) {
+  options.version = DEVICE_OPTIONS_VERSION;
+  options.flags &= SUPPORTED_OPTION_FLAGS;
+  options.crc = computeConfigCrc(options);
+  EEPROM.put(EEPROM_OPTIONS_ADDRESS, options);
+  applyDeviceOptions(options);
 }
 
 void loadConfig() {
@@ -182,16 +289,26 @@ void loadConfig() {
 
   if (isConfigValid(stored, CONFIG_VERSION)) {
     applyConfig(stored);
-    return;
+  } else {
+    stored = defaultConfig();
+    persistConfig(stored);
   }
 
-  stored = defaultConfig();
-  persistConfig(stored);
+  DeviceOptions storedOptions;
+  EEPROM.get(EEPROM_OPTIONS_ADDRESS, storedOptions);
+  if (isDeviceOptionsValid(storedOptions)) {
+    applyDeviceOptions(storedOptions);
+  } else {
+    storedOptions = defaultDeviceOptions();
+    persistDeviceOptions(storedOptions);
+  }
 }
 
 void resetConfig() {
   DeviceConfig cfg = defaultConfig();
   persistConfig(cfg);
+  DeviceOptions options = defaultDeviceOptions();
+  persistDeviceOptions(options);
 }
 
 void sendConfigFrame() {
@@ -229,8 +346,38 @@ void sendRawHidConfigFrame() {
   sendRawHidFrame(CMD_CONFIG, reinterpret_cast<const uint8_t *>(&config), sizeof(DeviceConfig));
 }
 
+void sendDeviceOptionsFrame() {
+  const uint8_t payload[] = {
+    DEVICE_OPTIONS_VERSION,
+    static_cast<uint8_t>(deviceOptions.flags & 0xFF),
+    static_cast<uint8_t>(deviceOptions.flags >> 8),
+  };
+  sendFrame(Serial, CMD_DEVICE_OPTIONS, payload, sizeof(payload));
+}
+
+void sendRawHidDeviceOptionsFrame() {
+  const uint8_t payload[] = {
+    DEVICE_OPTIONS_VERSION,
+    static_cast<uint8_t>(deviceOptions.flags & 0xFF),
+    static_cast<uint8_t>(deviceOptions.flags >> 8),
+  };
+  sendRawHidFrame(CMD_DEVICE_OPTIONS, payload, sizeof(payload));
+}
+
+void sendButtonStateEvent(uint8_t buttonIndex, uint8_t state) {
+#if NUM_BUTTONS == 2
+  const uint8_t payload[] = {buttonIndex, state};
+  sendFrame(Serial, CMD_BUTTON_EVENT, payload, sizeof(payload));
+  sendRawHidFrame(CMD_BUTTON_EVENT, payload, sizeof(payload));
+#else
+  sendButtonEvent(Serial, state);
+  const uint8_t payload[] = {state};
+  sendRawHidFrame(CMD_BUTTON_EVENT, payload, sizeof(payload));
+#endif
+}
+
 void sendDeviceInfoFrame() {
-  uint8_t payload[15];
+  uint8_t payload[17];
   payload[0]  = NUM_LEDS;
   payload[1]  = KEYCAP_R;
   payload[2]  = KEYCAP_G;
@@ -246,11 +393,13 @@ void sendDeviceInfoFrame() {
   payload[12] = BOTTOM_CASE_B;
   payload[13] = TOP_CASE_SHADE_ENABLED;
   payload[14] = THIRD_ACTION_TRIGGER;
+  payload[15] = static_cast<uint8_t>(DEVICE_CAPABILITIES & 0xFF);
+  payload[16] = static_cast<uint8_t>(DEVICE_CAPABILITIES >> 8);
   sendFrame(Serial, CMD_DEVICE_INFO, payload, sizeof(payload));
 }
 
 void sendRawHidDeviceInfoFrame() {
-  uint8_t payload[15];
+  uint8_t payload[17];
   payload[0]  = NUM_LEDS;
   payload[1]  = KEYCAP_R;
   payload[2]  = KEYCAP_G;
@@ -266,6 +415,8 @@ void sendRawHidDeviceInfoFrame() {
   payload[12] = BOTTOM_CASE_B;
   payload[13] = TOP_CASE_SHADE_ENABLED;
   payload[14] = THIRD_ACTION_TRIGGER;
+  payload[15] = static_cast<uint8_t>(DEVICE_CAPABILITIES & 0xFF);
+  payload[16] = static_cast<uint8_t>(DEVICE_CAPABILITIES >> 8);
   sendRawHidFrame(CMD_DEVICE_INFO, payload, sizeof(payload));
 }
 
@@ -354,68 +505,149 @@ void sendGestureAction(uint8_t actionType, uint16_t actionCode, uint8_t modifier
   Consumer.write(actionCode);
 }
 
-void sendAction(uint8_t taps) {
-  GestureAction action = config.tripleTap;
+void sendAction(uint8_t buttonIndex, uint8_t taps) {
+  GestureAction action;
 
-  if (taps == 1) {
-    action = config.singleTap;
-  } else if (taps == 2) {
-    action = config.doubleTap;
+#if NUM_BUTTONS == 2
+  if (buttonIndex == 1) {
+    action = config.button2TripleTap;
+    if (taps == 1) {
+      action = config.button2SingleTap;
+    } else if (taps == 2) {
+      action = config.button2DoubleTap;
+    }
+  } else
+#else
+  (void)buttonIndex;
+#endif
+  {
+    action = config.tripleTap;
+    if (taps == 1) {
+      action = config.singleTap;
+    } else if (taps == 2) {
+      action = config.doubleTap;
+    }
   }
 
   sendGestureAction(action.type, action.code, action.modifiers);
 }
 
-void updateButton() {
+#if NUM_BUTTONS == 2
+void syncButtonsWithoutActions(uint32_t now) {
+  for (uint8_t index = 0; index < NUM_BUTTONS; index++) {
+    ButtonRuntime &button = buttons[index];
+    bool state = digitalRead(buttonPins[index]);
 
-  bool state = digitalRead(BTN_INPUT_PIN);
+    if (state != button.lastState) {
+      button.lastState = state;
+      button.lastChange = now;
+      sendButtonStateEvent(index, state == LOW ? BUTTON_PRESSED : BUTTON_RELEASED);
+    }
+
+    button.tapCount = 0;
+    button.longPressHandled = true;
+  }
+}
+
+bool updateResetChord() {
+  uint32_t now = millis();
+  bool firstPressed = digitalRead(buttonPins[0]) == LOW;
+  bool secondPressed = digitalRead(buttonPins[1]) == LOW;
+
+  if (!resetChordActive && firstPressed && secondPressed) {
+    resetChordActive = true;
+    resetStartedAt = now;
+  }
+
+  if (!resetChordActive) {
+    return false;
+  }
+
+  syncButtonsWithoutActions(now);
+
+  if (!firstPressed || !secondPressed) {
+    resetStartedAt = 0;
+  } else {
+    if (resetStartedAt == 0) {
+      resetStartedAt = now;
+    }
+    if (now - resetStartedAt >= RESET_DELAY) {
+      pinMode(RESET_PIN, OUTPUT);
+      digitalWrite(RESET_PIN, LOW);
+    }
+  }
+
+  if (!firstPressed && !secondPressed) {
+    pinMode(RESET_PIN, INPUT);
+    resetChordActive = false;
+    resetStartedAt = 0;
+  }
+
+  return true;
+}
+#endif
+
+void updateButton(uint8_t buttonIndex) {
+  ButtonRuntime &button = buttons[buttonIndex];
+
+  bool state = digitalRead(buttonPins[buttonIndex]);
   uint32_t now = millis();
 
-  if (state != lastState && (now - lastChange) > DEBOUNCE) {
+  if (state != button.lastState && (now - button.lastChange) > DEBOUNCE) {
 
-    lastChange = now;
-    lastState = state;
+    button.lastChange = now;
+    button.lastState = state;
 
     if (state == LOW) {
       markActivity();
       releaseBoostStart = now;
-      sendButtonEvent(Serial, BUTTON_PRESSED);
-      pressStart = now;
-      longPressHandled = false;
+      sendButtonStateEvent(buttonIndex, BUTTON_PRESSED);
+      button.pressStart = now;
+      button.longPressHandled = false;
+      if (turboModeEnabled()) {
+        sendAction(buttonIndex, 1);
+        button.longPressHandled = true;
+        button.tapCount = 0;
+      }
     }
 
     if (state == HIGH) {
-      sendButtonEvent(Serial, BUTTON_RELEASED);
-      if (!longPressHandled) {
-        uint32_t pressDuration = now - pressStart;
+      sendButtonStateEvent(buttonIndex, BUTTON_RELEASED);
+      if (!turboModeEnabled() && !button.longPressHandled) {
+        uint32_t pressDuration = now - button.pressStart;
 
         // Only short taps enter the multi-tap window. A slower first release
         // is treated as an immediate single tap to reduce perceived latency.
-        if (tapCount == 0 && pressDuration > QUICK_TAP_MAX_PRESS) {
-          sendAction(1);
+        if (button.tapCount == 0 && pressDuration > QUICK_TAP_MAX_PRESS) {
+          sendAction(buttonIndex, 1);
         } else {
-          tapCount++;
-          lastRelease = now;
+          button.tapCount++;
+          button.lastRelease = now;
         }
       }
     }
   }
 
-  if (!longPressHandled && lastState == LOW && (now - pressStart) > LONG_PRESS) {
+  if (turboModeEnabled()) {
+    button.tapCount = 0;
+    return;
+  }
+
+  if (!button.longPressHandled && button.lastState == LOW && (now - button.pressStart) > LONG_PRESS) {
 
 #if THIRD_ACTION_TRIGGER == THIRD_ACTION_TRIGGER_LONG_PRESS
-    sendAction(3);
+    sendAction(buttonIndex, 3);
 #else
     nextBrightness();
 #endif
-    longPressHandled = true;
-    tapCount = 0;
+    button.longPressHandled = true;
+    button.tapCount = 0;
   }
 
-  if (tapCount > 0 && (now - lastRelease) > MULTI_TAP_TIMEOUT) {
+  if (button.tapCount > 0 && (now - button.lastRelease) > MULTI_TAP_TIMEOUT) {
 
-    sendAction(tapCount);
-    tapCount = 0;
+    sendAction(buttonIndex, button.tapCount);
+    button.tapCount = 0;
   }
 }
 
@@ -552,6 +784,24 @@ void updateBaseColor() {
 #endif
 }
 
+bool areConfigActionsValid(const DeviceConfig &candidate) {
+  if (!isActionValid(candidate.singleTap) ||
+      !isActionValid(candidate.doubleTap) ||
+      !isActionValid(candidate.tripleTap)) {
+    return false;
+  }
+
+#if NUM_BUTTONS == 2
+  if (!isActionValid(candidate.button2SingleTap) ||
+      !isActionValid(candidate.button2DoubleTap) ||
+      !isActionValid(candidate.button2TripleTap)) {
+    return false;
+  }
+#endif
+
+  return true;
+}
+
 void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
   if (payloadLen != sizeof(DeviceConfig)) {
     sendError(Serial, STATUS_BAD_PAYLOAD);
@@ -566,9 +816,7 @@ void handleSetConfig(const uint8_t *payload, uint8_t payloadLen) {
     return;
   }
 
-  if (!isActionValid(nextConfig.singleTap) ||
-      !isActionValid(nextConfig.doubleTap) ||
-      !isActionValid(nextConfig.tripleTap)) {
+  if (!areConfigActionsValid(nextConfig)) {
     sendError(Serial, STATUS_BAD_PAYLOAD);
     return;
   }
@@ -593,9 +841,7 @@ void handleRawHidSetConfig(const uint8_t *payload, uint8_t payloadLen) {
     return;
   }
 
-  if (!isActionValid(nextConfig.singleTap) ||
-      !isActionValid(nextConfig.doubleTap) ||
-      !isActionValid(nextConfig.tripleTap)) {
+  if (!areConfigActionsValid(nextConfig)) {
     sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_PAYLOAD);
     return;
   }
@@ -603,6 +849,43 @@ void handleRawHidSetConfig(const uint8_t *payload, uint8_t payloadLen) {
   persistConfig(nextConfig);
   updateBaseColor();
   markActivity();
+  sendRawHidStatusFrame(CMD_ACK, STATUS_OK);
+}
+
+bool decodeDeviceOptions(const uint8_t *payload, uint8_t payloadLen, DeviceOptions &options) {
+  if (payloadLen != 3 || payload[0] != DEVICE_OPTIONS_VERSION) {
+    return false;
+  }
+
+  const uint16_t flags = static_cast<uint16_t>(payload[1]) |
+                         (static_cast<uint16_t>(payload[2]) << 8);
+  if ((flags & ~SUPPORTED_OPTION_FLAGS) != 0) {
+    return false;
+  }
+
+  options = {DEVICE_OPTIONS_VERSION, flags, 0};
+  return true;
+}
+
+void handleSetDeviceOptions(const uint8_t *payload, uint8_t payloadLen) {
+  DeviceOptions options;
+  if (!decodeDeviceOptions(payload, payloadLen, options)) {
+    sendError(Serial, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  persistDeviceOptions(options);
+  sendStatusFrame(Serial, CMD_ACK, STATUS_OK);
+}
+
+void handleRawHidSetDeviceOptions(const uint8_t *payload, uint8_t payloadLen) {
+  DeviceOptions options;
+  if (!decodeDeviceOptions(payload, payloadLen, options)) {
+    sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_PAYLOAD);
+    return;
+  }
+
+  persistDeviceOptions(options);
   sendRawHidStatusFrame(CMD_ACK, STATUS_OK);
 }
 
@@ -615,7 +898,7 @@ void sendRawHidPingFrame() {
 
   uint8_t payload[RAW_HID_REPORT_SIZE] = {0};
   payload[0] = STATUS_OK;
-  payload[1] = DEVICE_TYPE_ONE_SHOT;
+  payload[1] = DEVICE_TYPE;
   memcpy(payload + 2, productName, nameLen);
   sendRawHidFrame(CMD_PONG, payload, 2 + nameLen);
 }
@@ -677,6 +960,10 @@ void handleRawHid() {
     sendRawHidPingFrame();
   } else if (cmd == CMD_GET_DEVICE_INFO) {
     sendRawHidDeviceInfoFrame();
+  } else if (cmd == CMD_GET_DEVICE_OPTIONS) {
+    sendRawHidDeviceOptionsFrame();
+  } else if (cmd == CMD_SET_DEVICE_OPTIONS) {
+    handleRawHidSetDeviceOptions(payload, payloadLen);
   } else {
     sendRawHidStatusFrame(CMD_ERROR, STATUS_BAD_COMMAND);
   }
@@ -746,9 +1033,13 @@ void handleSerial() {
       updateBaseColor();
       sendConfigFrame();
     } else if (cmd == CMD_PING) {
-      sendPingFrame(Serial, DEVICE_TYPE_ONE_SHOT, USB_PRODUCT);
+      sendPingFrame(Serial, DEVICE_TYPE, USB_PRODUCT);
     } else if (cmd == CMD_GET_DEVICE_INFO) {
       sendDeviceInfoFrame();
+    } else if (cmd == CMD_GET_DEVICE_OPTIONS) {
+      sendDeviceOptionsFrame();
+    } else if (cmd == CMD_SET_DEVICE_OPTIONS) {
+      handleSetDeviceOptions(payload, payloadLen);
     } else {
       sendError(Serial, STATUS_BAD_COMMAND);
     }
@@ -757,9 +1048,23 @@ void handleSerial() {
 
 void setup() {
 
+#if BTN_GROUND_PIN >= 0
   pinMode(BTN_GROUND_PIN, OUTPUT);
   digitalWrite(BTN_GROUND_PIN, LOW);
-  pinMode(BTN_INPUT_PIN, INPUT_PULLUP);
+#endif
+  for (uint8_t index = 0; index < NUM_BUTTONS; index++) {
+    pinMode(buttonPins[index], INPUT_PULLUP);
+    buttons[index].lastState = HIGH;
+    buttons[index].lastChange = 0;
+    buttons[index].pressStart = 0;
+    buttons[index].lastRelease = 0;
+    buttons[index].tapCount = 0;
+    buttons[index].longPressHandled = false;
+  }
+
+#if NUM_BUTTONS == 2
+  pinMode(RESET_PIN, INPUT);
+#endif
 
 #if NUM_LEDS > 0
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS);
@@ -783,7 +1088,15 @@ void setup() {
 void loop() {
   handleSerial();
   handleRawHid();
-  updateButton();
+#if NUM_BUTTONS == 2
+  if (!updateResetChord()) {
+#endif
+    for (uint8_t index = 0; index < NUM_BUTTONS; index++) {
+      updateButton(index);
+    }
+#if NUM_BUTTONS == 2
+  }
+#endif
 #ifdef ROTARY_ENABLED
   updateRotary();
 #endif

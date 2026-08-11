@@ -18,13 +18,22 @@ EXPORT_FLAG=""
 EXTRA_FLAGS=""
 
 case "$TARGET" in
-  one-shot)
+  one-shot|bebop)
     TARGET_FQBN="${ARDUINO_FQBN_ONE_SHOT:-${ARDUINO_FQBN:-arduino:avr:leonardo}}"
     TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_ONE_SHOT:-${ARDUINO_SKETCH_PATH:-firmware/one-shot}}"
-    TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_ONE_SHOT:-${ARDUINO_BUILD_PATH:-.arduino/build}}"
+
+    if [ "$TARGET" = "bebop" ]; then
+      TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_BEBOP:-.arduino/build-bebop}"
+    else
+      TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_ONE_SHOT:-${ARDUINO_BUILD_PATH:-.arduino/build}}"
+    fi
 
     if [ -z "$PROFILE" ]; then
-      PROFILE="default"
+      if [ "$TARGET" = "bebop" ]; then
+        PROFILE="bebop"
+      else
+        PROFILE="default"
+      fi
     fi
 
     PROFILE_FILE="$ROOT_DIR/profiles/${PROFILE}.json"
@@ -43,7 +52,14 @@ case "$TARGET" in
     DATA_PIN=$(jq -r '.data_pin' "$PROFILE_FILE")
     NUM_LEDS=$(jq -r '.num_leds' "$PROFILE_FILE")
 
-    EXTRA_FLAGS="-DBTN_GROUND_PIN=${BTN_GROUND_PIN} -DBTN_INPUT_PIN=${BTN_INPUT_PIN} -DDATA_PIN=${DATA_PIN} -DNUM_LEDS=${NUM_LEDS}"
+    NUM_BUTTONS=$(jq -r '.num_buttons // 1' "$PROFILE_FILE")
+    EXTRA_FLAGS="-DBTN_GROUND_PIN=${BTN_GROUND_PIN} -DBTN_INPUT_PIN=${BTN_INPUT_PIN} -DDATA_PIN=${DATA_PIN} -DNUM_LEDS=${NUM_LEDS} -DNUM_BUTTONS=${NUM_BUTTONS}"
+
+    if [ "$NUM_BUTTONS" -eq 2 ]; then
+      BTN2_INPUT_PIN=$(jq -r '.button2_input_pin' "$PROFILE_FILE")
+      RESET_PIN=$(jq -r '.reset_pin' "$PROFILE_FILE")
+      EXTRA_FLAGS="${EXTRA_FLAGS} -DBTN2_INPUT_PIN=${BTN2_INPUT_PIN} -DRESET_PIN=${RESET_PIN}"
+    fi
 
     THIRD_ACTION_TRIGGER=$(jq -r '.third_action_trigger // "triple_tap"' "$PROFILE_FILE")
     case "$THIRD_ACTION_TRIGGER" in
@@ -281,7 +297,7 @@ if [ "$MODE" = "upload" ]; then
   rm -f /tmp/oneshot_ports.tmp
 
   # Filter ports by target: one-shot hides ESP boards, magic-button hides Arduino boards
-  if [ "$TARGET" = "one-shot" ]; then
+  if [ "$TARGET" = "one-shot" ] || [ "$TARGET" = "bebop" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
   elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)

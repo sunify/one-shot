@@ -10,6 +10,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  pressedControls: {
+    type: Object,
+    default: () => ({}),
+  },
   width: {
     type: [Number, String],
     default: 200,
@@ -22,7 +26,9 @@ const buttonOffset = ref(0)
 let pressTime = 0
 let mouseUpTimeout = null
 
-const visualButtonOffset = computed(() => (props.isPressed ? 12 : buttonOffset.value))
+const visualButtonOffset = computed(() => (
+  props.pressedControls.main || props.isPressed ? 12 : buttonOffset.value
+))
 
 function handleMouseDown() {
   buttonOffset.value = 12

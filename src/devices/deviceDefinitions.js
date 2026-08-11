@@ -1,4 +1,5 @@
 import OneShotPreview from '../components/OneShotPreview.vue'
+import BebopPreview from '../components/BebopPreview.vue'
 import {
   ACTION_TYPES,
   DEVICE_TYPES,
@@ -34,6 +35,13 @@ const buttonBindings = [
     when: ({ form }) => !form.turboMode,
   },
 ]
+
+function prefixedButtonBindings(prefix) {
+  return buttonBindings.map((binding) => ({
+    ...binding,
+    key: `${prefix}${binding.key[0].toUpperCase()}${binding.key.slice(1)}`,
+  }))
+}
 
 const gesture = (key, offset) => ({ key, offset, type: 'gesture' })
 const byte = (key, offset, defaultValue = 0) => ({ key, offset, type: 'u8', defaultValue })
@@ -149,6 +157,69 @@ export const DEVICE_DEFINITIONS = {
       topCaseShade: '#ffffff',
       bottomCase: '#ffffff',
       thirdActionTrigger: THIRD_ACTION_TRIGGERS.longPress,
+    },
+  },
+  [DEVICE_TYPES.bebop]: {
+    type: DEVICE_TYPES.bebop,
+    name: 'Bebop',
+    preview: BebopPreview,
+    controls: [
+      {
+        id: 'left',
+        protocolId: 0,
+        type: 'button',
+        label: 'Peppa',
+        bindings: prefixedButtonBindings('left'),
+      },
+      {
+        id: 'right',
+        protocolId: 1,
+        type: 'button',
+        label: 'Bebop',
+        bindings: prefixedButtonBindings('right'),
+      },
+    ],
+    configLayouts: [
+      {
+        payloadLength: 31,
+        version: 1,
+        fields: [
+          gesture('leftSingleTap', 1),
+          gesture('leftDoubleTap', 5),
+          gesture('leftTripleTap', 9),
+          gesture('rightSingleTap', 13),
+          gesture('rightDoubleTap', 17),
+          gesture('rightTripleTap', 21),
+          byte('red', 25),
+          byte('green', 26),
+          byte('blue', 27),
+          byte('animationMode', 28),
+          byte('sleepTimeout', 29),
+        ],
+      },
+    ],
+    defaults: {
+      leftSingleTap: { type: ACTION_TYPES.hotkey, code: 0x05, modifiers: 0 },
+      leftDoubleTap: { type: ACTION_TYPES.consumer, code: 0x00b5, modifiers: 0 },
+      leftTripleTap: { type: ACTION_TYPES.consumer, code: 0x00b6, modifiers: 0 },
+      rightSingleTap: { type: ACTION_TYPES.hotkey, code: 0x13, modifiers: 0 },
+      rightDoubleTap: { type: ACTION_TYPES.consumer, code: 0x00b5, modifiers: 0 },
+      rightTripleTap: { type: ACTION_TYPES.consumer, code: 0x00b6, modifiers: 0 },
+      red: 250,
+      green: 255,
+      blue: 210,
+      animationMode: 1,
+      sleepTimeout: 0,
+      turboMode: false,
+    },
+    defaultInfo: {
+      ...commonDefaultInfo,
+      numLeds: 0,
+      keycap: '#ffffff',
+      topCase: '#ffffff',
+      topCaseShade: '#cf00ff',
+      bottomCase: '#ffffff',
+      thirdActionTrigger: THIRD_ACTION_TRIGGERS.tripleTap,
     },
   },
 }

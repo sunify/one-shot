@@ -117,13 +117,14 @@ function normalizeSerialError(error) {
 }
 
 export function useDeviceConnection({
+  applyButtonEvent,
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
+  clearButtonEvents,
   deviceDefinition,
   deviceType,
   form,
-  isDevicePressed,
   supportsTurboMode,
 }) {
   const port = ref(null)
@@ -150,6 +151,16 @@ export function useDeviceConnection({
     const resolve = pendingResolver.value
     pendingResolver.value = null
     resolve(frame)
+  }
+
+  function handleButtonEvent(payload) {
+    if (payload.length === 0) {
+      return
+    }
+
+    const controlId = payload.length >= 2 ? payload[0] : 0
+    const state = payload.length >= 2 ? payload[1] : payload[0]
+    applyButtonEvent(controlId, state === BUTTON_EVENT_STATE.pressed)
   }
 
   async function refreshKnownPorts() {
@@ -231,7 +242,7 @@ export function useDeviceConnection({
           if (frame.command === COMMANDS.config) {
             applyConfig(decodeConfig(frame.payload, deviceDefinition.value))
           } else if (frame.command === COMMANDS.buttonEvent) {
-            isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
+            handleButtonEvent(frame.payload)
           } else if (frame.command === COMMANDS.error) {
             statusText.value = `Ошибка устройства: ${frame.payload[0]}`
           }
@@ -258,7 +269,7 @@ export function useDeviceConnection({
     const parsed = parseFrames(report)
     for (const frame of parsed.frames) {
       if (frame.command === COMMANDS.buttonEvent && frame.payload.length > 0) {
-        isDevicePressed.value = frame.payload[0] === BUTTON_EVENT_STATE.pressed
+        handleButtonEvent(frame.payload)
       }
     }
   }
@@ -269,7 +280,7 @@ export function useDeviceConnection({
     if (hidDevice.value) {
       hidDevice.value.oninputreport = null
     }
-    isDevicePressed.value = false
+    clearButtonEvents()
 
     try {
       await reader.value?.cancel()
