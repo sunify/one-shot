@@ -28,6 +28,7 @@ const {
   supportsTurboMode,
   suppressAutoSave,
   setPreviewControlPressed,
+  setPreviewSurfacePressed,
   updateBinding,
 } = useConfiguratorState()
 
@@ -126,13 +127,13 @@ function handleGestureFieldClose() {
 }
 
 let previewPressTimeout
-function handlePreviewPress(controlId = 'main') {
+function handlePreviewPress(previewId = 'main') {
   if (previewPressTimeout) {
     clearTimeout(previewPressTimeout)
   }
-  setPreviewControlPressed(controlId, true)
+  setPreviewSurfacePressed(previewId, true)
   previewPressTimeout = window.setTimeout(() => {
-    setPreviewControlPressed(controlId, false)
+    setPreviewSurfacePressed(previewId, false)
     previewPressTimeout = null
   }, 120)
 }

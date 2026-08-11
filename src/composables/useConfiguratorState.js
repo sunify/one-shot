@@ -75,7 +75,7 @@ export function useConfiguratorState() {
 
   const controlPressStates = computed(() => Object.fromEntries(
     deviceDefinition.value.controls.map((control) => [
-      control.id,
+      control.previewId ?? control.id,
       pressedControls[control.id] === true || previewPressedControls[control.id] === true,
     ]),
   ))
@@ -131,6 +131,13 @@ export function useConfiguratorState() {
     }
   }
 
+  function setPreviewSurfacePressed(previewId, isPressed) {
+    const control = deviceDefinition.value.controls.find(
+      (candidate) => (candidate.previewId ?? candidate.id) === previewId,
+    )
+    setPreviewControlPressed(control?.id ?? previewId, isPressed)
+  }
+
   function applyDeviceInfo(info) {
     numLeds.value = info.numLeds
     deviceCapabilities.value = info.capabilities ?? 0
@@ -165,6 +172,7 @@ export function useConfiguratorState() {
     supportsTurboMode,
     suppressAutoSave,
     setPreviewControlPressed,
+    setPreviewSurfacePressed,
     thirdActionTrigger,
     updateBinding,
   }

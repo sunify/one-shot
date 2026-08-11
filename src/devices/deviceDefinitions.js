@@ -167,6 +167,7 @@ export const DEVICE_DEFINITIONS = {
       {
         id: 'right',
         protocolId: 0,
+        previewId: 'left',
         type: 'button',
         label: 'Peppa',
         bindings: prefixedButtonBindings('right'),
@@ -174,6 +175,7 @@ export const DEVICE_DEFINITIONS = {
       {
         id: 'left',
         protocolId: 1,
+        previewId: 'right',
         type: 'button',
         label: 'Bebop',
         bindings: prefixedButtonBindings('left'),
