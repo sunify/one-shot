@@ -160,7 +160,7 @@ watch(currentDeviceAnimation, () => {
       <p v-if="!isConnected" class="connection-hint">
         Не появился в списке? Быстро нажмите кнопку три раза и повторите подключение в течение минуты.
       </p>
-      <p v-if="statusText" class="connection-status">{{ statusText }}</p>
+      <!-- <p v-if="statusText" class="connection-status">{{ statusText }}</p> -->
     </section>
 
     <PanelSection :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
