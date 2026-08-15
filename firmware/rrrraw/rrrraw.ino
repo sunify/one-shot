@@ -10,9 +10,11 @@ namespace {
 
 const char *DEVICE_NAME = "rrrraw";
 const char *CONFIG_FILE_PATH = "/rrrraw.cfg";
-const uint8_t CONFIG_VERSION = 1;
+const uint8_t CONFIG_VERSION = 2;
 const uint16_t DEBOUNCE_MS = 12;
 const uint16_t LONG_PRESS_MS = 600;
+const uint16_t CONFIG_CHORD_HOLD_MS = 2000;
+const uint32_t CONFIG_ADVERTISING_TIMEOUT_MS = 60UL * 1000UL;
 const uint8_t BUTTON_COUNT = 4;
 
 // Defaults use exposed nice!nano-compatible GPIOs and avoid NFC, reset,
@@ -85,6 +87,10 @@ ButtonRuntime buttons[BUTTON_COUNT] = {};
 bool storageReady = false;
 uint8_t encoderState = 0;
 int8_t encoderAccumulator = 0;
+bool configAdvertisingActive = false;
+uint32_t configAdvertisingUntil = 0;
+uint32_t configChordStartedAt = 0;
+bool configChordTriggered = false;
 
 void flushProtocolTransport(Stream &transport) {
   if (&transport == &configBle) configBle.flushTXD();
@@ -227,15 +233,15 @@ DeviceConfig defaultConfig() {
   DeviceConfig next = {};
   next.version = CONFIG_VERSION;
   next.button1Single = {ACTION_TYPE_HOTKEY, 0x1E, 0};
-  next.button1Long = {ACTION_TYPE_HOTKEY, 0x3A, 0};
-  next.button2Single = {ACTION_TYPE_HOTKEY, 0x1F, 0};
-  next.button2Long = {ACTION_TYPE_HOTKEY, 0x3B, 0};
-  next.button3Single = {ACTION_TYPE_HOTKEY, 0x20, 0};
-  next.button3Long = {ACTION_TYPE_HOTKEY, 0x3C, 0};
-  next.encoderPressSingle = {ACTION_TYPE_CONSUMER, 0x00E2, 0};
-  next.encoderPressLong = {ACTION_TYPE_CONSUMER, 0x00CD, 0};
-  next.encoderCW = {ACTION_TYPE_CONSUMER, 0x00E9, 0};
-  next.encoderCCW = {ACTION_TYPE_CONSUMER, 0x00EA, 0};
+  next.button1Long = {ACTION_TYPE_HOTKEY, 0x1F, 0};
+  next.button2Single = {ACTION_TYPE_HOTKEY, 0x20, 0};
+  next.button2Long = {ACTION_TYPE_HOTKEY, 0x21, 0};
+  next.button3Single = {ACTION_TYPE_HOTKEY, 0x22, 0};
+  next.button3Long = {ACTION_TYPE_HOTKEY, 0x23, 0};
+  next.encoderPressSingle = {ACTION_TYPE_HOTKEY, 0x24, 0};
+  next.encoderPressLong = {ACTION_TYPE_HOTKEY, 0x25, 0};
+  next.encoderCW = {ACTION_TYPE_HOTKEY, 0x26, 0};
+  next.encoderCCW = {ACTION_TYPE_HOTKEY, 0x27, 0};
   next.crc = computeConfigCrc(next);
   return next;
 }
@@ -339,6 +345,47 @@ void updateEncoder() {
   }
 }
 
+void startAdvertising();
+
+void startConfigAdvertising(uint32_t now) {
+  if (Bluefruit.connected() >= 2) return;
+  configAdvertisingActive = true;
+  configAdvertisingUntil = now + CONFIG_ADVERTISING_TIMEOUT_MS;
+  startAdvertising();
+}
+
+void updateConfigAdvertising(uint32_t now) {
+  if (configAdvertisingActive && static_cast<int32_t>(now - configAdvertisingUntil) >= 0) {
+    configAdvertisingActive = false;
+  }
+  if (!configAdvertisingActive && Bluefruit.connected() > 0 && Bluefruit.Advertising.isRunning()) {
+    Bluefruit.Advertising.stop();
+  }
+}
+
+void updateConfigChord(uint32_t now) {
+  if (!buttons[0].pressed || !buttons[2].pressed) {
+    configChordStartedAt = 0;
+    configChordTriggered = false;
+    return;
+  }
+
+  // The outer-button chord is reserved and must not leak configured actions.
+  buttons[0].longTriggered = true;
+  buttons[2].longTriggered = true;
+  if (buttons[0].heldModifiers || buttons[2].heldModifiers) {
+    buttons[0].heldModifiers = 0;
+    buttons[2].heldModifiers = 0;
+    sendKeyboardState();
+  }
+
+  if (configChordStartedAt == 0) configChordStartedAt = now;
+  if (!configChordTriggered && now - configChordStartedAt >= CONFIG_CHORD_HOLD_MS) {
+    configChordTriggered = true;
+    startConfigAdvertising(now);
+  }
+}
+
 void sendDeviceInfo(Stream &transport) {
   const uint8_t payload[17] = {
       0,
@@ -431,7 +478,7 @@ void setupBle() {
   // The config response is 48 bytes including framing. A larger characteristic
   // max length lets BLEUart split it into notifications even when ATT stays at 23.
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-  Bluefruit.begin();
+  Bluefruit.begin(2, 0);
   sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
   sd_power_dcdc_mode_set(NRF_POWER_DCDC_DISABLE);
 #if defined(NRF52840_XXAA)
@@ -474,6 +521,8 @@ void loop() {
   handleProtocol(Serial);
   handleProtocol(configBle);
   for (uint8_t index = 0; index < BUTTON_COUNT; index++) updateButton(index, now);
+  updateConfigChord(now);
+  updateConfigAdvertising(now);
   updateEncoder();
   delay(2);
 }

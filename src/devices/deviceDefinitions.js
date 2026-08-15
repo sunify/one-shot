@@ -283,7 +283,7 @@ export const DEVICE_DEFINITIONS = {
     configLayouts: [
       {
         payloadLength: 42,
-        version: 1,
+        version: 2,
         fields: [
           gesture('button1Single', 1),
           gesture('button1Long', 5),
@@ -300,15 +300,15 @@ export const DEVICE_DEFINITIONS = {
     ],
     defaults: {
       button1Single: { type: ACTION_TYPES.hotkey, code: 0x1e, modifiers: 0 },
-      button1Long: { type: ACTION_TYPES.hotkey, code: 0x3a, modifiers: 0 },
-      button2Single: { type: ACTION_TYPES.hotkey, code: 0x1f, modifiers: 0 },
-      button2Long: { type: ACTION_TYPES.hotkey, code: 0x3b, modifiers: 0 },
-      button3Single: { type: ACTION_TYPES.hotkey, code: 0x20, modifiers: 0 },
-      button3Long: { type: ACTION_TYPES.hotkey, code: 0x3c, modifiers: 0 },
-      encoderPressSingle: { type: ACTION_TYPES.consumer, code: 0x00e2, modifiers: 0 },
-      encoderPressLong: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
-      encoderCW: { type: ACTION_TYPES.consumer, code: 0x00e9, modifiers: 0 },
-      encoderCCW: { type: ACTION_TYPES.consumer, code: 0x00ea, modifiers: 0 },
+      button1Long: { type: ACTION_TYPES.hotkey, code: 0x1f, modifiers: 0 },
+      button2Single: { type: ACTION_TYPES.hotkey, code: 0x20, modifiers: 0 },
+      button2Long: { type: ACTION_TYPES.hotkey, code: 0x21, modifiers: 0 },
+      button3Single: { type: ACTION_TYPES.hotkey, code: 0x22, modifiers: 0 },
+      button3Long: { type: ACTION_TYPES.hotkey, code: 0x23, modifiers: 0 },
+      encoderPressSingle: { type: ACTION_TYPES.hotkey, code: 0x24, modifiers: 0 },
+      encoderPressLong: { type: ACTION_TYPES.hotkey, code: 0x25, modifiers: 0 },
+      encoderCW: { type: ACTION_TYPES.hotkey, code: 0x26, modifiers: 0 },
+      encoderCCW: { type: ACTION_TYPES.hotkey, code: 0x27, modifiers: 0 },
       turboMode: false,
     },
     defaultInfo: {

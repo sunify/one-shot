@@ -193,7 +193,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
         </button>
       </div>
       <p v-if="!isConnected" class="connection-hint">
-        Для BLE-конфигурации переведите устройство в режим настройки.
+        rrrraw: удерживайте две крайние кнопки 2 секунды, затем подключайтесь по Bluetooth.
       </p>
     </section>
 
