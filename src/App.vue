@@ -193,7 +193,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
         </button>
       </div>
       <p v-if="!isConnected" class="connection-hint">
-        rrrraw: удерживайте две крайние кнопки 2 секунды, затем подключайтесь по Bluetooth.
+        Тестовый rrrraw доступен для Bluetooth-настройки постоянно.
       </p>
     </section>
 

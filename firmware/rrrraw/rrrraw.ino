@@ -15,6 +15,9 @@ const uint16_t DEBOUNCE_MS = 12;
 const uint16_t LONG_PRESS_MS = 600;
 const uint16_t CONFIG_CHORD_HOLD_MS = 2000;
 const uint32_t CONFIG_ADVERTISING_TIMEOUT_MS = 60UL * 1000UL;
+// Bench mode: keep a second BLE slot discoverable while the HID connection is active.
+// Disable before battery-life measurements and the production build.
+const bool ALWAYS_ADVERTISE_CONFIG = true;
 const uint8_t BUTTON_COUNT = 4;
 
 // Defaults use exposed nice!nano-compatible GPIOs and avoid NFC, reset,
@@ -355,6 +358,11 @@ void startConfigAdvertising(uint32_t now) {
 }
 
 void updateConfigAdvertising(uint32_t now) {
+  if (ALWAYS_ADVERTISE_CONFIG) {
+    if (Bluefruit.connected() < 2 && !Bluefruit.Advertising.isRunning()) startAdvertising();
+    return;
+  }
+
   if (configAdvertisingActive && static_cast<int32_t>(now - configAdvertisingUntil) >= 0) {
     configAdvertisingActive = false;
   }
