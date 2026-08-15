@@ -2,6 +2,10 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 
 const props = defineProps({
+  activeAnimation: {
+    type: Object,
+    default: null,
+  },
   isPressed: {
     type: Boolean,
     default: false,

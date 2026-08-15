@@ -275,8 +275,18 @@ export const DEVICE_DEFINITIONS = {
         label: 'Энкодер',
         bindings: [
           ...pressBindings('encoderPress'),
-          { key: 'encoderCW', label: 'По часовой стрелке', capabilities: ['mouse'] },
-          { key: 'encoderCCW', label: 'Против часовой стрелки', capabilities: ['mouse'] },
+          {
+            key: 'encoderCW',
+            label: 'По часовой стрелке',
+            animation: { type: 'rotate', direction: 'cw' },
+            capabilities: ['mouse'],
+          },
+          {
+            key: 'encoderCCW',
+            label: 'Против часовой стрелки',
+            animation: { type: 'rotate', direction: 'ccw' },
+            capabilities: ['mouse'],
+          },
         ],
       },
     ],

@@ -119,6 +119,13 @@ watch(
 )
 
 const currentPreviewBinding = ref(null);
+const currentPreviewAnimation = computed(() => currentPreviewBinding.value
+  ? {
+      ...currentPreviewBinding.value.animation,
+      controlId: currentPreviewBinding.value.controlId,
+    }
+  : null)
+
 function handleGestureFieldOpen(binding) {
   currentPreviewBinding.value = binding.animation ? binding : null;
 }
@@ -167,6 +174,9 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
     setPreviewControlPressed(previousBinding.controlId, false)
   }
   if (binding !== null) {
+    if (binding.animation.type === 'rotate') {
+      return
+    }
     const runFrame = () => {
       runAnimation(binding);
     };
@@ -200,6 +210,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
     <PanelSection :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
       <component
         :is="deviceDefinition.preview"
+        :active-animation="currentPreviewAnimation"
         :is-pressed="isDevicePressed"
         :is-rainbow="isRainbow"
         :pressed-controls="controlPressStates"

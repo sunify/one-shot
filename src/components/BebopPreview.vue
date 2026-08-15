@@ -5,6 +5,10 @@ import leftSvg from '../assets/bebop-left.svg'
 import rightSvg from '../assets/bebop-right.svg'
 
 const props = defineProps({
+  activeAnimation: {
+    type: Object,
+    default: null,
+  },
   isPressed: {
     type: Boolean,
     default: false,
