@@ -214,7 +214,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
         :is-pressed="isDevicePressed"
         :is-rainbow="isRainbow"
         :pressed-controls="controlPressStates"
-        :width="250"
+        :width="deviceDefinition.previewWidth ?? 250"
         @press="handlePreviewPress"
       />
       <ColorControl

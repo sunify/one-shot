@@ -246,6 +246,7 @@ export const DEVICE_DEFINITIONS = {
     type: DEVICE_TYPES.rrrraw,
     name: 'rrrraw',
     preview: RrrrawPreview,
+    previewWidth: 375,
     controls: [
       {
         id: 'button1',
