@@ -15,6 +15,7 @@
 - `CMD_PONG (0x84)` may include device identification payload: `status:u8`, `device_type:u8`.
 - One Shot config payload is 18 bytes total: `version:u8`, then for each gesture `type:u8 code:u16 modifiers:u8`, then `r:u8`, `g:u8`, `b:u8`, `animation_mode:u8`, `crc:u8`.
 - Magic Button config payload is 14 bytes total: `version:u8`, then for each gesture `type:u8 code:u16 modifiers:u8`, then `crc:u8`.
+- rrrraw uses device type `0x04` and a 42-byte config payload: `version:u8`, ten actions (`single/long` for three buttons and the encoder press, then encoder CW/CCW), then `crc:u8`.
 - Bebop config payload is 31 bytes total: `version:u8`, three 4-byte gestures for the left button, three for the right button, then `r:u8`, `g:u8`, `b:u8`, `animation_mode:u8`, `sleep_timeout:u8`, and `crc:u8`.
 - Legacy button events contain `state:u8`; multi-control devices use `control_id:u8`, `state:u8`.
 - Gesture action types: `0x01` for consumer preset, `0x02` for one-key hotkey with modifiers.

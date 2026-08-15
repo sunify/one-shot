@@ -131,6 +131,13 @@ case "$TARGET" in
     TARGET_USB_PRODUCT="${USB_PRODUCT_MAGIC_BUTTON_NRF:-Super Magic Button}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_MAGIC_BUTTON_NRF:-Huntflow}"
     ;;
+  rrrraw)
+    TARGET_FQBN="${ARDUINO_FQBN_RRRRAW:-adafruit:nrf52:mdbt50qrx}"
+    TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_RRRRAW:-firmware/rrrraw}"
+    TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_RRRRAW:-.arduino/build-rrrraw}"
+    TARGET_USB_PRODUCT="${USB_PRODUCT_RRRRAW:-rrrraw}"
+    TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_RRRRAW:-Huntflow}"
+    ;;
   magic-button-ch32x035)
     TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_CH32X035:-WCH:ch32v:CH32X035_EVT}"
     TARGET_SKETCH_PATH="${ARDUINO_SKETCH_PATH_MAGIC_BUTTON_CH32X035:-firmware/magic-button-ch32x035-hid}"
@@ -299,7 +306,7 @@ if [ "$MODE" = "upload" ]; then
   # Filter ports by target: one-shot hides ESP boards, magic-button hides Arduino boards
   if [ "$TARGET" = "one-shot" ] || [ "$TARGET" = "bebop" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "esp" || true)
-  elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
+  elif [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "rrrraw" ]; then
     PORTS=$(echo "$PORTS" | grep -iv "arduino\|leonardo\|mega\|uno\|nano" || true)
   fi
 
@@ -335,7 +342,7 @@ if [ "$MODE" = "upload" ]; then
     echo "Using port: $TARGET_PORT"
   fi
 
-  if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ]; then
+  if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "rrrraw" ]; then
     compile_magic_button
   else
     compile_one_shot
@@ -351,7 +358,7 @@ if [ "$MODE" = "upload" ]; then
   exit 0
 fi
 
-if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "magic-button-ch32x035" ]; then
+if [ "$TARGET" = "magic-button" ] || [ "$TARGET" = "magic-button-nrf" ] || [ "$TARGET" = "rrrraw" ] || [ "$TARGET" = "magic-button-ch32x035" ]; then
   compile_magic_button "${EXPORT_FLAG}"
 else
   compile_one_shot "${EXPORT_FLAG}"

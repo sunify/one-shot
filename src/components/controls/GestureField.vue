@@ -29,6 +29,10 @@ const props = defineProps({
     type: Array,
     required: true,
   },
+  allowModifierOnly: {
+    type: Boolean,
+    default: false,
+  },
   showMouseOptions: {
     type: Boolean,
     default: false,
@@ -152,6 +156,7 @@ function handleClose() {
           </button>
           <HotkeyEditor
             :gesture="gesture"
+            :allow-modifier-only="allowModifierOnly"
             :is-mac-like="isMacLike"
             :modifier-options="modifierOptions"
             :show-mouse-options="showMouseOptions"

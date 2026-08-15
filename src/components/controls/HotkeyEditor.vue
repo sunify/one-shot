@@ -3,6 +3,10 @@ import { computed } from 'vue'
 import { ACTION_TYPES, HOTKEY_KEY_OPTIONS, MOUSE_OPTIONS } from '../../protocol'
 
 const props = defineProps({
+  allowModifierOnly: {
+    type: Boolean,
+    default: false,
+  },
   gesture: {
     type: Object,
     required: true,
@@ -28,6 +32,10 @@ const selectedModifiers = computed(() =>
     .filter((option) => (props.gesture.modifiers & Number(option.value)) !== 0)
     .map((option) => option.value),
 )
+
+const keyOptions = computed(() => props.allowModifierOnly
+  ? HOTKEY_KEY_OPTIONS
+  : HOTKEY_KEY_OPTIONS.filter((option) => option.code !== 0))
 
 function modifierLabel(option) {
   if (option.label === 'Meta') {
@@ -141,7 +149,7 @@ function updateAmount(value) {
         class="input select hotkey-char-input"
         @change="updateKey($event.target.value)"
       >
-        <option v-for="option in HOTKEY_KEY_OPTIONS" :key="option.code" :value="String(option.code)">
+        <option v-for="option in keyOptions" :key="option.code" :value="String(option.code)">
           {{ option.label }}
         </option>
         <optgroup v-if="showMouseOptions" label="Мышь">

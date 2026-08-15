@@ -234,6 +234,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
               :is-mac-like="isMacLike"
               :label="binding.label"
               :modifier-options="modifierOptions"
+              :allow-modifier-only="binding.capabilities?.includes('modifierHold')"
               :show-mouse-options="binding.capabilities?.includes('mouse')"
               @open="handleGestureFieldOpen(binding)"
               @close="handleGestureFieldClose"

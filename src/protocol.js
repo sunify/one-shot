@@ -85,6 +85,7 @@ export const DEVICE_TYPES = {
   oneShot: 0x01,
   magicButton: 0x02,
   bebop: 0x03,
+  rrrraw: 0x04,
 }
 
 export const MODIFIERS = {
@@ -123,6 +124,7 @@ export const FUNCTION_KEY_OPTIONS = [
 ]
 
 export const HOTKEY_KEY_OPTIONS = [
+  { label: 'Без клавиши', code: 0x00 },
   { label: 'Tab', code: 0x2B },
   { label: 'Esc', code: 0x29 },
   { label: 'Enter', code: 0x28 },
@@ -499,15 +501,15 @@ export function formatMouseAction(gesture) {
 }
 
 export function formatHotkey(gesture) {
-  if (!gesture?.code) {
-    return 'Выберите клавишу'
-  }
-
   const parts = []
   if (gesture.modifiers & MODIFIERS.meta) parts.push('⌘')
   if (gesture.modifiers & MODIFIERS.ctrl) parts.push('Ctrl')
   if (gesture.modifiers & MODIFIERS.shift) parts.push('Shift')
   if (gesture.modifiers & MODIFIERS.alt) parts.push('Alt')
+
+  if (!gesture?.code) {
+    return parts.length > 0 ? parts.join('\u2009+\u2009') : 'Выберите клавишу'
+  }
 
   parts.push(hotkeyCharFromCode(gesture.code, gesture.modifiers) || KEY_ALIASES[HID_LABELS[gesture.code]] || HID_LABELS[gesture.code] || toHexCode(gesture.code))
   return parts.join('\u2009+\u2009')

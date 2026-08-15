@@ -20,6 +20,9 @@
     "firmware:compile:magic:nrf": "sh ./scripts/firmware.sh compile magic-button-nrf",
     "firmware:export:magic:nrf": "sh ./scripts/firmware.sh export magic-button-nrf",
     "firmware:upload:magic:nrf": "sh ./scripts/firmware.sh upload magic-button-nrf",
+    "firmware:compile:rrrraw": "sh ./scripts/firmware.sh compile rrrraw",
+    "firmware:export:rrrraw": "sh ./scripts/firmware.sh export rrrraw",
+    "firmware:upload:rrrraw": "sh ./scripts/firmware.sh upload rrrraw",
     "firmware:compile:ch32x035": "sh ./scripts/firmware.sh compile magic-button-ch32x035",
     "firmware:export:ch32x035": "sh ./scripts/firmware.sh export magic-button-ch32x035",
     "firmware:upload:ch32x035": "sh ./scripts/firmware.sh upload magic-button-ch32x035"

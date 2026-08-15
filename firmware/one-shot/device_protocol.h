@@ -11,6 +11,7 @@ const uint8_t PROTOCOL_VERSION = 1;
 const uint8_t DEVICE_TYPE_ONE_SHOT = 0x01;
 const uint8_t DEVICE_TYPE_MAGIC_BUTTON = 0x02;
 const uint8_t DEVICE_TYPE_BEBOP = 0x03;
+const uint8_t DEVICE_TYPE_RRRRAW = 0x04;
 
 const uint16_t DEVICE_CAPABILITY_TURBO_MODE = 0x0001;
 const uint16_t DEVICE_OPTION_TURBO_MODE = 0x0001;

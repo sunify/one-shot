@@ -18,6 +18,7 @@ import { hasDeviceDefinition } from '../devices/deviceDefinitions'
 const BLE_CONFIG_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
 const BLE_CONFIG_RX_CHARACTERISTIC = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'
 const BLE_CONFIG_TX_CHARACTERISTIC = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
+const BLE_FALLBACK_CHUNK_SIZE = 20
 
 function mergeBuffers(current, chunk) {
   const merged = new Uint8Array(current.length + chunk.length)
@@ -354,10 +355,13 @@ export function useDeviceConnection({
 
       const responsePromise = waitForFrame(expected, timeoutMs)
       const frame = buildFrame(command, payload)
-      if (typeof bluetoothRx.value.writeValueWithResponse === 'function') {
-        await bluetoothRx.value.writeValueWithResponse(frame)
-      } else {
-        await bluetoothRx.value.writeValue(frame)
+      for (let offset = 0; offset < frame.length; offset += BLE_FALLBACK_CHUNK_SIZE) {
+        const chunk = frame.slice(offset, offset + BLE_FALLBACK_CHUNK_SIZE)
+        if (typeof bluetoothRx.value.writeValueWithResponse === 'function') {
+          await bluetoothRx.value.writeValueWithResponse(chunk)
+        } else {
+          await bluetoothRx.value.writeValue(chunk)
+        }
       }
       return responsePromise
     }

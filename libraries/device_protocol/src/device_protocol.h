@@ -11,12 +11,14 @@ const uint8_t PROTOCOL_VERSION = 1;
 const uint8_t DEVICE_TYPE_ONE_SHOT = 0x01;
 const uint8_t DEVICE_TYPE_MAGIC_BUTTON = 0x02;
 const uint8_t DEVICE_TYPE_BEBOP = 0x03;
+const uint8_t DEVICE_TYPE_RRRRAW = 0x04;
 
 const uint16_t DEVICE_CAPABILITY_TURBO_MODE = 0x0001;
 const uint16_t DEVICE_OPTION_TURBO_MODE = 0x0001;
 
 const uint8_t ACTION_TYPE_CONSUMER = 0x01;
 const uint8_t ACTION_TYPE_HOTKEY = 0x02;
+const uint8_t ACTION_TYPE_MOUSE = 0x03;
 
 const uint8_t MODIFIER_CTRL = 0x01;
 const uint8_t MODIFIER_SHIFT = 0x02;
@@ -35,7 +37,6 @@ enum Command : uint8_t {
   CMD_ACK = 0x82,
   CMD_PONG = 0x84,
   CMD_DEVICE_INFO = 0x85,
-  CMD_DEVICE_OPTIONS = 0x86,
   CMD_DEVICE_OPTIONS = 0x86,
   CMD_BUTTON_EVENT = 0x90,
   CMD_ERROR = 0xFF
@@ -157,6 +158,12 @@ inline bool isActionValid(const GestureAction &action) {
 
   if (action.type == ACTION_TYPE_HOTKEY) {
     return action.code <= 0xFF;
+  }
+
+  if (action.type == ACTION_TYPE_MOUSE) {
+    const uint8_t axis = action.code & 0xFF;
+    const uint8_t amount = action.code >> 8;
+    return axis <= 2 && amount > 0;
   }
 
   return false;

@@ -10,6 +10,7 @@ const uint8_t PROTOCOL_VERSION = 1;
 
 const uint8_t DEVICE_TYPE_ONE_SHOT = 0x01;
 const uint8_t DEVICE_TYPE_MAGIC_BUTTON = 0x02;
+const uint8_t DEVICE_TYPE_RRRRAW = 0x04;
 
 const uint8_t ACTION_TYPE_CONSUMER = 0x01;
 const uint8_t ACTION_TYPE_HOTKEY = 0x02;

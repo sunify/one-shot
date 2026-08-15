@@ -1,10 +1,11 @@
 # One Shot
 
-Репозиторий с двумя родственными устройствами и общим web-конфигуратором по Serial:
+Репозиторий с родственными устройствами и общим web-конфигуратором по USB и Bluetooth:
 
 - `firmware/one-shot/one-shot.ino` — Leonardo / Pro Micro, три тапа и подсветка
 - профиль `bebop` той же прошивки — Pro Micro с двумя независимыми кнопками
 - `firmware/magic-button/magic-button.ino` — ESP32-S3, одиночное / двойное / долгое нажатие, без подсветки
+- `firmware/rrrraw/rrrraw.ino` — nRF52840, три кнопки и энкодер с кнопкой
 
 ## Web
 
@@ -46,6 +47,16 @@ npm run firmware:compile
 ```bash
 npm run firmware:compile:bebop
 ```
+
+Сборка `rrrraw`:
+
+```bash
+npm run firmware:compile:rrrraw
+```
+
+Пины по умолчанию: кнопки `P0.17`, `P0.20`, `P0.22`, кнопка энкодера
+`P0.24`, энкодер A/B — `P1.00` и `P0.11`. Все значения переопределяются
+макросами `RRRRAW_*` во время сборки.
 
 Профиль `profiles/bebop.json` использует Arduino pins `3` (`PD0`) и `5` (`PC6`),
 а pin `4` (`PD4`) — для аппаратного reset при удержании обеих кнопок.

@@ -1,5 +1,6 @@
 import OneShotPreview from '../components/OneShotPreview.vue'
 import BebopPreview from '../components/BebopPreview.vue'
+import RrrrawPreview from '../components/RrrrawPreview.vue'
 import {
   ACTION_TYPES,
   DEVICE_TYPES,
@@ -41,6 +42,23 @@ function prefixedButtonBindings(prefix) {
     ...binding,
     key: `${prefix}${binding.key[0].toUpperCase()}${binding.key.slice(1)}`,
   }))
+}
+
+function pressBindings(prefix) {
+  return [
+    {
+      key: `${prefix}Single`,
+      label: 'Нажатие',
+      animation: { type: 'tap', count: 1 },
+      capabilities: ['modifierHold'],
+    },
+    {
+      key: `${prefix}Long`,
+      label: 'Долгое нажатие',
+      animation: { type: 'press' },
+      capabilities: ['modifierHold'],
+    },
+  ]
 }
 
 const gesture = (key, offset) => ({ key, offset, type: 'gesture' })
@@ -222,6 +240,85 @@ export const DEVICE_DEFINITIONS = {
       topCaseShade: '#cf00ff',
       bottomCase: '#ffffff',
       thirdActionTrigger: THIRD_ACTION_TRIGGERS.tripleTap,
+    },
+  },
+  [DEVICE_TYPES.rrrraw]: {
+    type: DEVICE_TYPES.rrrraw,
+    name: 'rrrraw',
+    preview: RrrrawPreview,
+    controls: [
+      {
+        id: 'button1',
+        protocolId: 0,
+        type: 'button',
+        label: 'Кнопка 1',
+        bindings: pressBindings('button1'),
+      },
+      {
+        id: 'button2',
+        protocolId: 1,
+        type: 'button',
+        label: 'Кнопка 2',
+        bindings: pressBindings('button2'),
+      },
+      {
+        id: 'button3',
+        protocolId: 2,
+        type: 'button',
+        label: 'Кнопка 3',
+        bindings: pressBindings('button3'),
+      },
+      {
+        id: 'encoder',
+        protocolId: 3,
+        type: 'encoder',
+        label: 'Энкодер',
+        bindings: [
+          ...pressBindings('encoderPress'),
+          { key: 'encoderCW', label: 'По часовой стрелке', capabilities: ['mouse'] },
+          { key: 'encoderCCW', label: 'Против часовой стрелки', capabilities: ['mouse'] },
+        ],
+      },
+    ],
+    configLayouts: [
+      {
+        payloadLength: 42,
+        version: 1,
+        fields: [
+          gesture('button1Single', 1),
+          gesture('button1Long', 5),
+          gesture('button2Single', 9),
+          gesture('button2Long', 13),
+          gesture('button3Single', 17),
+          gesture('button3Long', 21),
+          gesture('encoderPressSingle', 25),
+          gesture('encoderPressLong', 29),
+          gesture('encoderCW', 33),
+          gesture('encoderCCW', 37),
+        ],
+      },
+    ],
+    defaults: {
+      button1Single: { type: ACTION_TYPES.hotkey, code: 0x1e, modifiers: 0 },
+      button1Long: { type: ACTION_TYPES.hotkey, code: 0x3a, modifiers: 0 },
+      button2Single: { type: ACTION_TYPES.hotkey, code: 0x1f, modifiers: 0 },
+      button2Long: { type: ACTION_TYPES.hotkey, code: 0x3b, modifiers: 0 },
+      button3Single: { type: ACTION_TYPES.hotkey, code: 0x20, modifiers: 0 },
+      button3Long: { type: ACTION_TYPES.hotkey, code: 0x3c, modifiers: 0 },
+      encoderPressSingle: { type: ACTION_TYPES.consumer, code: 0x00e2, modifiers: 0 },
+      encoderPressLong: { type: ACTION_TYPES.consumer, code: 0x00cd, modifiers: 0 },
+      encoderCW: { type: ACTION_TYPES.consumer, code: 0x00e9, modifiers: 0 },
+      encoderCCW: { type: ACTION_TYPES.consumer, code: 0x00ea, modifiers: 0 },
+      turboMode: false,
+    },
+    defaultInfo: {
+      ...commonDefaultInfo,
+      numLeds: 0,
+      keycap: '#ffffff',
+      topCase: '#dedede',
+      topCaseShade: '#999999',
+      bottomCase: '#777777',
+      thirdActionTrigger: THIRD_ACTION_TRIGGERS.longPress,
     },
   },
 }
