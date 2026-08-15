@@ -16,12 +16,18 @@ export const COMMANDS = {
   deviceInfo: 0x85,
   deviceOptions: 0x86,
   buttonEvent: 0x90,
+  encoderEvent: 0x91,
   error: 0xff,
 }
 
 export const BUTTON_EVENT_STATE = {
   released: 0x00,
   pressed: 0x01,
+}
+
+export const ENCODER_EVENT_DIRECTION = {
+  counterclockwise: 0xff,
+  clockwise: 0x01,
 }
 
 export const DEVICE_CAPABILITIES = {

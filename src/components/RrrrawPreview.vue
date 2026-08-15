@@ -39,6 +39,9 @@ function handlePointerEnd(event, controlId) {
 const rotationDirection = computed(() => (
   props.activeAnimation?.type === 'rotate' ? props.activeAnimation.direction : null
 ))
+const encoderStepSequence = computed(() => (
+  props.activeAnimation?.type === 'rotate-step' ? props.activeAnimation.sequence : null
+))
 
 const dimpleAngle = ref(0)
 const encoderPhaseAngle = ref(0)
@@ -49,6 +52,18 @@ const encoderPhaseOpacity = computed(() => (
   Math.floor(encoderPhaseAngle.value / (Math.PI / 5)) % 2 === 0 ? 0 : 1
 ))
 const encoderBaseOpacity = computed(() => 1 - encoderPhaseOpacity.value)
+
+function normalizeAngle(angle) {
+  return (angle + Math.PI * 2) % (Math.PI * 2)
+}
+
+watch(encoderStepSequence, (sequence, previousSequence) => {
+  if (sequence == null || sequence === previousSequence) return
+
+  const direction = props.activeAnimation.direction === 'cw' ? 1 : -1
+  dimpleAngle.value = normalizeAngle(dimpleAngle.value + direction * Math.PI / 12)
+  encoderPhaseAngle.value = normalizeAngle(encoderPhaseAngle.value + direction * Math.PI / 5)
+})
 
 let animationFrame = null
 let previousFrameTime = null
@@ -65,8 +80,8 @@ function animateEncoder(time) {
     const direction = rotationDirection.value === 'cw' ? 1 : -1
     const nextDimpleAngle = dimpleAngle.value + direction * elapsed * Math.PI * 2 / 4800
     const nextPhaseAngle = encoderPhaseAngle.value + direction * elapsed * Math.PI * 2 / 1200
-    dimpleAngle.value = (nextDimpleAngle + Math.PI * 2) % (Math.PI * 2)
-    encoderPhaseAngle.value = (nextPhaseAngle + Math.PI * 2) % (Math.PI * 2)
+    dimpleAngle.value = normalizeAngle(nextDimpleAngle)
+    encoderPhaseAngle.value = normalizeAngle(nextPhaseAngle)
   }
 
   previousFrameTime = time
@@ -93,7 +108,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="rrrraw-preview" :style="{ width: `${width}px` }">
-    <div class="preview-scene" :style="{ transform: `scale(${width / 1025})` }">
+    <div class="preview-scene" :style="{ zoom: width / 1025 }">
       <img class="preview-base" :src="baseSvg" alt="rrrraw">
 
       <img
@@ -112,6 +127,7 @@ onBeforeUnmount(() => {
           rotationDirection,
           {
             rotating: rotationDirection,
+            stepping: activeAnimation?.type === 'rotate-step',
             pressed: pressedControls.encoder,
           },
         ]"
@@ -176,7 +192,7 @@ onBeforeUnmount(() => {
   left: 0;
   width: 1025px;
   height: 800px;
-  transform-origin: top left;
+  contain: layout paint;
 }
 
 .preview-base,
@@ -222,7 +238,10 @@ onBeforeUnmount(() => {
 .installed-key,
 .installed-encoder {
   z-index: 2;
+  transform: translate3d(0, 0, 0);
   transition: transform 100ms ease-out;
+  backface-visibility: hidden;
+  will-change: transform;
 }
 
 .key-layer {
@@ -231,11 +250,11 @@ onBeforeUnmount(() => {
 }
 
 .installed-key.pressed {
-  transform: translateY(8px);
+  transform: translate3d(0, 8px, 0);
 }
 
 .installed-encoder.pressed {
-  transform: translateY(4px);
+  transform: translate3d(0, 8px, 0);
 }
 
 .key-1 {
@@ -283,6 +302,10 @@ onBeforeUnmount(() => {
   stroke-width: 2.5;
   transform-box: fill-box;
   transform-origin: center;
+}
+
+.installed-encoder.stepping .dimple {
+  transition: transform 90ms linear;
 }
 
 .hit-area {

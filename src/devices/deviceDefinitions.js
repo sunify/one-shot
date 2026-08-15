@@ -245,6 +245,7 @@ export const DEVICE_DEFINITIONS = {
   [DEVICE_TYPES.rrrraw]: {
     type: DEVICE_TYPES.rrrraw,
     name: 'rrrraw',
+    configuratorTitle: 'Конфигуратор<br />Krutilki',
     preview: RrrrawPreview,
     previewWidth: 562.5,
     controls: [
@@ -277,13 +278,13 @@ export const DEVICE_DEFINITIONS = {
         bindings: [
           ...pressBindings('encoderPress'),
           {
-            key: 'encoderCW',
+            key: 'encoderCCW',
             label: 'По часовой стрелке',
             animation: { type: 'rotate', direction: 'cw' },
             capabilities: ['mouse'],
           },
           {
-            key: 'encoderCCW',
+            key: 'encoderCW',
             label: 'Против часовой стрелки',
             animation: { type: 'rotate', direction: 'ccw' },
             capabilities: ['mouse'],

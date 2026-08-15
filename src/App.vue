@@ -33,6 +33,9 @@ const {
 } = useConfiguratorState()
 
 const { colorPreviewStyle, isRainbow } = useLightingPreview(form, caseColors, supportsLighting)
+const physicalPreviewAnimation = ref(null)
+let physicalEncoderAnimationTimeout
+let physicalEncoderEventSequence = 0
 
 const {
   connect,
@@ -50,6 +53,7 @@ const {
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
+  applyEncoderEvent: handlePhysicalEncoderEvent,
   clearButtonEvents,
   deviceDefinition,
   deviceType,
@@ -59,6 +63,7 @@ const {
 
 const appTitle = computed(() => {
   if (!isConnected.value) return 'Конфигуратор'
+  if (deviceDefinition.value.configuratorTitle) return deviceDefinition.value.configuratorTitle
   const name = productName.value || deviceDefinition.value.name
   return `Конфигуратор<br />${name}`
 })
@@ -95,6 +100,7 @@ function handleInvalidHotkeyChar() {
 onBeforeUnmount(() => {
   scheduleAutoSave.cancel()
   clearInterval(animationInterval)
+  clearTimeout(physicalEncoderAnimationTimeout)
   disconnect()
 })
 
@@ -119,12 +125,29 @@ watch(
 )
 
 const currentPreviewBinding = ref(null);
-const currentPreviewAnimation = computed(() => currentPreviewBinding.value
-  ? {
-      ...currentPreviewBinding.value.animation,
-      controlId: currentPreviewBinding.value.controlId,
-    }
-  : null)
+const currentPreviewAnimation = computed(() => physicalPreviewAnimation.value ?? (
+  currentPreviewBinding.value
+    ? {
+        ...currentPreviewBinding.value.animation,
+        controlId: currentPreviewBinding.value.controlId,
+      }
+    : null
+))
+
+function handlePhysicalEncoderEvent(controlId, direction) {
+  physicalEncoderEventSequence += 1
+  physicalPreviewAnimation.value = {
+    type: 'rotate-step',
+    direction: direction === 'cw' ? 'ccw' : 'cw',
+    controlId,
+    sequence: physicalEncoderEventSequence,
+  }
+  clearTimeout(physicalEncoderAnimationTimeout)
+  physicalEncoderAnimationTimeout = window.setTimeout(() => {
+    physicalPreviewAnimation.value = null
+    physicalEncoderAnimationTimeout = null
+  }, 180)
+}
 
 function handleGestureFieldOpen(binding) {
   currentPreviewBinding.value = binding.animation ? binding : null;

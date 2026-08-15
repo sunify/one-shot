@@ -1,7 +1,11 @@
+#include <Adafruit_TinyUSB.h>
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
+#include <FreeRTOS.h>
+#include <task.h>
 #include "nrf_gpio.h"
+#include "nrf_power.h"
 #include "device_protocol.h"
 
 using namespace Adafruit_LittleFS_Namespace;
@@ -15,6 +19,16 @@ const uint16_t DEBOUNCE_MS = 12;
 const uint16_t LONG_PRESS_MS = 600;
 const uint16_t CONFIG_CHORD_HOLD_MS = 2000;
 const uint32_t CONFIG_ADVERTISING_TIMEOUT_MS = 60UL * 1000UL;
+const uint32_t BATTERY_UPDATE_INTERVAL_MS = 5UL * 60UL * 1000UL;
+const uint8_t BATTERY_SAMPLE_COUNT = 3;
+const uint16_t IDLE_INPUT_POLL_MS = 8;
+const uint16_t ACTIVE_INPUT_POLL_MS = 1;
+const uint16_t BLE_CONN_INTERVAL_MIN = 9;
+const uint16_t BLE_CONN_INTERVAL_MAX = 12;
+const uint16_t BLE_IDLE_CONN_INTERVAL = 12;
+const uint16_t BLE_IDLE_CONN_SLAVE_LATENCY = 15;
+const uint16_t BLE_CONN_SUPERVISION_TIMEOUT = 400;
+const uint32_t BLE_IDLE_PARAMS_DELAY_MS = 2000;
 // Bench mode: keep a second BLE slot discoverable while the HID connection is active.
 // Disable before battery-life measurements and the production build.
 const bool ALWAYS_ADVERTISE_CONFIG = true;
@@ -23,8 +37,8 @@ const uint8_t BUTTON_COUNT = 4;
 // Defaults use exposed nice!nano-compatible GPIOs and avoid NFC, reset,
 // external-flash and the modified SuperMini power-control pin P0.13.
 #ifndef RRRRAW_BUTTON1_PORT
-#define RRRRAW_BUTTON1_PORT 0
-#define RRRRAW_BUTTON1_PIN 17
+#define RRRRAW_BUTTON1_PORT 1
+#define RRRRAW_BUTTON1_PIN 4
 #endif
 #ifndef RRRRAW_BUTTON2_PORT
 #define RRRRAW_BUTTON2_PORT 0
@@ -84,16 +98,131 @@ struct ButtonRuntime {
 
 BLEDis deviceInfo;
 BLEHidAdafruit hid;
+BLEBas batteryService;
 BLEUart configBle;
 DeviceConfig config;
 ButtonRuntime buttons[BUTTON_COUNT] = {};
 bool storageReady = false;
 uint8_t encoderState = 0;
 int8_t encoderAccumulator = 0;
+int16_t pendingEncoderSteps = 0;
 bool configAdvertisingActive = false;
 uint32_t configAdvertisingUntil = 0;
 uint32_t configChordStartedAt = 0;
 bool configChordTriggered = false;
+uint8_t batteryLevel = 100;
+uint32_t lastBatteryUpdateAt = 0;
+uint32_t bleSecuredAt = 0;
+bool bleIdleParamsRequested = false;
+bool usbVbusActive = false;
+bool lastVbusPresent = false;
+bool encoderWakeInterruptsAttached = false;
+TaskHandle_t loopTaskHandle = nullptr;
+
+bool isRawVbusPresent() {
+#if NRF_POWER_HAS_USBREG
+  return nrf_power_usbregstatus_vbusdet_get(NRF_POWER);
+#else
+  return TinyUSBDevice.mounted();
+#endif
+}
+
+void updateUsbState() {
+  const bool vbusPresent = isRawVbusPresent();
+  if (vbusPresent && !lastVbusPresent) {
+    // TinyUSB is only initialized during setup when VBUS is already present.
+    // Reboot once on insertion so USB serial comes up cleanly.
+    NVIC_SystemReset();
+  } else if (!vbusPresent && lastVbusPresent && usbVbusActive) {
+    TinyUSBDevice.detach();
+    Serial.end();
+    usbVbusActive = false;
+  }
+  lastVbusPresent = vbusPresent;
+}
+
+void wakeLoopTask() {
+  if (loopTaskHandle) xTaskNotifyGive(loopTaskHandle);
+}
+
+void inputWakeInterrupt() {
+  if (!loopTaskHandle) return;
+  BaseType_t higherPriorityTaskWoken = pdFALSE;
+  vTaskNotifyGiveFromISR(loopTaskHandle, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
+}
+
+bool remapInterruptChannel(int interruptMask, uint8_t port, uint8_t pin) {
+  if (interruptMask == 0) return false;
+  const uint8_t channel = static_cast<uint8_t>(__builtin_ctz(static_cast<unsigned>(interruptMask)));
+  uint32_t configValue = NRF_GPIOTE->CONFIG[channel];
+  configValue &= ~(GPIOTE_CONFIG_PSEL_Msk | GPIOTE_CONFIG_PORT_Msk);
+  configValue |= ((uint32_t) pin << GPIOTE_CONFIG_PSEL_Pos) |
+                 ((uint32_t) port << GPIOTE_CONFIG_PORT_Pos);
+  NRF_GPIOTE->CONFIG[channel] = configValue;
+  return true;
+}
+
+void setupEncoderWakeInterrupts() {
+  loopTaskHandle = xTaskGetCurrentTaskHandle();
+  const int interruptA = attachInterrupt(0, inputWakeInterrupt, CHANGE);
+  const int interruptB = attachInterrupt(1, inputWakeInterrupt, CHANGE);
+  encoderWakeInterruptsAttached =
+      remapInterruptChannel(interruptA, RRRRAW_ENCODER_A_PORT, RRRRAW_ENCODER_A_PIN) &&
+      remapInterruptChannel(interruptB, RRRRAW_ENCODER_B_PORT, RRRRAW_ENCODER_B_PIN);
+}
+
+void ensureBleFastProfile() {
+  if (!bleIdleParamsRequested) return;
+  for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
+    BLEConnection *connection = Bluefruit.Connection(handle);
+    if (!connection || !connection->connected() || !connection->secured()) continue;
+    connection->requestConnectionParameter(
+        BLE_CONN_INTERVAL_MIN, 0, BLE_CONN_SUPERVISION_TIMEOUT);
+  }
+  bleIdleParamsRequested = false;
+  if (bleSecuredAt != 0) bleSecuredAt = millis();
+}
+
+void updateBlePowerProfile(uint32_t now) {
+  if (bleIdleParamsRequested || bleSecuredAt == 0 ||
+      now - bleSecuredAt < BLE_IDLE_PARAMS_DELAY_MS) return;
+  for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
+    BLEConnection *connection = Bluefruit.Connection(handle);
+    if (!connection || !connection->connected() || !connection->secured()) continue;
+    connection->requestConnectionParameter(
+        BLE_IDLE_CONN_INTERVAL,
+        BLE_IDLE_CONN_SLAVE_LATENCY,
+        BLE_CONN_SUPERVISION_TIMEOUT);
+  }
+  bleIdleParamsRequested = true;
+}
+
+void connectCallback(uint16_t connHandle) {
+  BLEConnection *connection = Bluefruit.Connection(connHandle);
+  if (connection) {
+    connection->requestConnectionParameter(
+        BLE_CONN_INTERVAL_MIN, 0, BLE_CONN_SUPERVISION_TIMEOUT);
+  }
+  bleSecuredAt = 0;
+  bleIdleParamsRequested = false;
+  wakeLoopTask();
+}
+
+void disconnectCallback(uint16_t connHandle, uint8_t reason) {
+  (void) connHandle;
+  (void) reason;
+  bleSecuredAt = 0;
+  bleIdleParamsRequested = false;
+  wakeLoopTask();
+}
+
+void securedCallback(uint16_t connHandle) {
+  (void) connHandle;
+  bleSecuredAt = millis();
+  bleIdleParamsRequested = false;
+  wakeLoopTask();
+}
 
 void flushProtocolTransport(Stream &transport) {
   if (&transport == &configBle) configBle.flushTXD();
@@ -176,7 +305,18 @@ void setHeldModifiers(uint8_t index, uint8_t modifiers) {
   sendKeyboardState();
 }
 
+void sampleEncoder();
+
+void delayWithEncoderSampling(uint16_t durationMs) {
+  const uint32_t startedAt = millis();
+  while (millis() - startedAt < durationMs) {
+    sampleEncoder();
+    delay(1);
+  }
+}
+
 void sendHotkey(const GestureAction &action) {
+  ensureBleFastProfile();
   uint8_t keys[6] = {static_cast<uint8_t>(action.code), 0, 0, 0, 0, 0};
   const uint8_t pressedModifiers = keyboardModifiers(activeModifierMask() | action.modifiers);
   for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
@@ -188,11 +328,12 @@ void sendHotkey(const GestureAction &action) {
     }
     hid.keyboardReport(handle, pressedModifiers, keys);
   }
-  delay(12);
+  delayWithEncoderSampling(12);
   sendKeyboardState();
 }
 
 void sendConsumer(uint16_t code) {
+  ensureBleFastProfile();
   for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
     BLEConnection *connection = Bluefruit.Connection(handle);
     if (!connection || !connection->connected()) continue;
@@ -201,12 +342,13 @@ void sendConsumer(uint16_t code) {
       continue;
     }
     hid.consumerKeyPress(handle, code);
-    delay(12);
+    delayWithEncoderSampling(12);
     hid.consumerKeyRelease(handle);
   }
 }
 
 void sendMouse(const GestureAction &action, int8_t direction) {
+  ensureBleFastProfile();
   const uint8_t axis = action.code & 0xFF;
   const int8_t amount = constrain(static_cast<int16_t>(action.code >> 8) * direction, -127, 127);
   const bool withModifiers = action.modifiers != 0 || activeModifierMask() != 0;
@@ -221,7 +363,7 @@ void sendMouse(const GestureAction &action, int8_t direction) {
     else if (axis == 2) hid.mouseMove(handle, 0, amount);
   });
   if (withModifiers) {
-    delay(12);
+    delayWithEncoderSampling(12);
     sendKeyboardState();
   }
 }
@@ -289,6 +431,66 @@ void loadConfig() {
   saveConfig(defaults);
 }
 
+uint16_t readBatteryMillivolts() {
+  analogReadResolution(12);
+  analogReference(AR_INTERNAL_1_2);
+
+  // The internal VDD input is VDD/4. Discard the first conversion so the
+  // SAADC sampling capacitor can settle, then average fresh samples.
+  analogReadVDD();
+  uint32_t rawSum = 0;
+  for (uint8_t index = 0; index < BATTERY_SAMPLE_COUNT; index++) {
+    rawSum += analogReadVDD();
+  }
+
+  const uint32_t rawAverage = rawSum / BATTERY_SAMPLE_COUNT;
+  return static_cast<uint16_t>((rawAverage * 1200UL * 4UL) / 4095UL);
+}
+
+uint8_t batteryPercentFromMillivolts(uint16_t millivolts) {
+  struct BatteryPoint {
+    uint16_t millivolts;
+    uint8_t percent;
+  };
+
+  static const BatteryPoint curve[] = {
+      {3050, 100},
+      {3000, 90},
+      {2950, 75},
+      {2900, 60},
+      {2850, 45},
+      {2800, 30},
+      {2700, 15},
+      {2600, 5},
+      {2500, 0},
+  };
+
+  if (millivolts >= curve[0].millivolts) return curve[0].percent;
+  const size_t lastIndex = (sizeof(curve) / sizeof(curve[0])) - 1;
+  if (millivolts <= curve[lastIndex].millivolts) return curve[lastIndex].percent;
+
+  for (size_t index = 0; index < lastIndex; index++) {
+    const BatteryPoint &upper = curve[index];
+    const BatteryPoint &lower = curve[index + 1];
+    if (millivolts > lower.millivolts) {
+      const uint16_t spanMv = upper.millivolts - lower.millivolts;
+      const uint8_t spanPercent = upper.percent - lower.percent;
+      const uint16_t offsetMv = millivolts - lower.millivolts;
+      return lower.percent + static_cast<uint8_t>((offsetMv * spanPercent) / spanMv);
+    }
+  }
+
+  return 0;
+}
+
+void updateBatteryLevel(bool forceNotify = false) {
+  const uint8_t measuredLevel = batteryPercentFromMillivolts(readBatteryMillivolts());
+  const bool changed = measuredLevel != batteryLevel;
+  batteryLevel = measuredLevel;
+  batteryService.write(batteryLevel);
+  if (forceNotify || changed) batteryService.notify(batteryLevel);
+}
+
 void sendButtonState(Stream &transport, uint8_t index, uint8_t state) {
   const uint8_t payload[2] = {index, state};
   sendProtocolFrame(transport, CMD_BUTTON_EVENT, payload, sizeof(payload));
@@ -296,8 +498,21 @@ void sendButtonState(Stream &transport, uint8_t index, uint8_t state) {
 
 void broadcastButtonState(uint8_t index, bool pressed) {
   const uint8_t state = pressed ? BUTTON_PRESSED : BUTTON_RELEASED;
-  if (Serial) sendButtonState(Serial, index, state);
+  if (usbVbusActive && Serial) sendButtonState(Serial, index, state);
   if (configBle.notifyEnabled()) sendButtonState(configBle, index, state);
+}
+
+void sendEncoderEvent(Stream &transport, int8_t direction) {
+  const uint8_t payload[2] = {
+      3,
+      direction > 0 ? ENCODER_CLOCKWISE : ENCODER_COUNTERCLOCKWISE,
+  };
+  sendProtocolFrame(transport, CMD_ENCODER_EVENT, payload, sizeof(payload));
+}
+
+void broadcastEncoderEvent(int8_t direction) {
+  if (usbVbusActive && Serial) sendEncoderEvent(Serial, direction);
+  if (configBle.notifyEnabled()) sendEncoderEvent(configBle, direction);
 }
 
 void updateButton(uint8_t index, uint32_t now) {
@@ -331,7 +546,7 @@ void updateButton(uint8_t index, uint32_t now) {
   else sendAction(longAction(index));
 }
 
-void updateEncoder() {
+void sampleEncoder() {
   static const int8_t transitions[16] = {
       0, -1, 1, 0, 1, 0, 0, -1,
       -1, 0, 0, 1, 0, 1, -1, 0,
@@ -340,10 +555,23 @@ void updateEncoder() {
   encoderAccumulator += transitions[(encoderState << 2) | next];
   encoderState = next;
   if (encoderAccumulator >= 4) {
-    encoderAccumulator = 0;
-    sendAction(config.encoderCW, 1);
+    encoderAccumulator -= 4;
+    if (pendingEncoderSteps < 127) pendingEncoderSteps++;
   } else if (encoderAccumulator <= -4) {
-    encoderAccumulator = 0;
+    encoderAccumulator += 4;
+    if (pendingEncoderSteps > -127) pendingEncoderSteps--;
+  }
+}
+
+void updateEncoder() {
+  sampleEncoder();
+  if (pendingEncoderSteps > 0) {
+    pendingEncoderSteps--;
+    broadcastEncoderEvent(1);
+    sendAction(config.encoderCW, 1);
+  } else if (pendingEncoderSteps < 0) {
+    pendingEncoderSteps++;
+    broadcastEncoderEvent(-1);
     sendAction(config.encoderCCW, -1);
   }
 }
@@ -365,6 +593,10 @@ void updateConfigAdvertising(uint32_t now) {
 
   if (configAdvertisingActive && static_cast<int32_t>(now - configAdvertisingUntil) >= 0) {
     configAdvertisingActive = false;
+  }
+  if (configAdvertisingActive) {
+    if (Bluefruit.connected() < 2 && !Bluefruit.Advertising.isRunning()) startAdvertising();
+    return;
   }
   if (!configAdvertisingActive && Bluefruit.connected() > 0 && Bluefruit.Advertising.isRunning()) {
     Bluefruit.Advertising.stop();
@@ -478,6 +710,7 @@ void startAdvertising() {
   Bluefruit.Advertising.addAppearance(BLE_APPEARANCE_HID_KEYBOARD);
   Bluefruit.Advertising.addService(configBle);
   Bluefruit.ScanResponse.addService(hid);
+  Bluefruit.ScanResponse.addService(batteryService);
   Bluefruit.ScanResponse.addName();
   Bluefruit.Advertising.restartOnDisconnect(true);
   Bluefruit.Advertising.setInterval(32, 160);
@@ -498,14 +731,44 @@ void setupBle() {
 #endif
   Bluefruit.setTxPower(-8);
   Bluefruit.setName(DEVICE_NAME);
-  deviceInfo.setManufacturer("Huntflow");
+  Bluefruit.Periph.setConnectCallback(connectCallback);
+  Bluefruit.Periph.setDisconnectCallback(disconnectCallback);
+  Bluefruit.Security.setSecuredCallback(securedCallback);
+  deviceInfo.setManufacturer("lunev");
   deviceInfo.setModel(DEVICE_NAME);
   deviceInfo.begin();
+  batteryService.begin();
+  updateBatteryLevel();
+  lastBatteryUpdateAt = millis();
   configBle.begin();
   configBle.bufferTXD(true);
+  configBle.setRxCallback([](uint16_t connHandle) {
+    (void) connHandle;
+    wakeLoopTask();
+  });
   hid.begin();
-  Bluefruit.Periph.setConnInterval(12, 24);
+  Bluefruit.Periph.setConnInterval(BLE_CONN_INTERVAL_MIN, BLE_CONN_INTERVAL_MAX);
+  Bluefruit.Periph.setConnSlaveLatency(0);
+  Bluefruit.Periph.setConnSupervisionTimeout(BLE_CONN_SUPERVISION_TIMEOUT);
   startAdvertising();
+}
+
+bool anyButtonActive() {
+  for (uint8_t index = 0; index < BUTTON_COUNT; index++) {
+    if (buttons[index].rawPressed || buttons[index].pressed) return true;
+  }
+  return false;
+}
+
+void blockUntilNextInput() {
+  if (!encoderWakeInterruptsAttached || usbVbusActive || Serial.available() > 0) {
+    delay(ACTIVE_INPUT_POLL_MS);
+    return;
+  }
+  const uint16_t waitMs =
+      anyButtonActive() || pendingEncoderSteps != 0 ? ACTIVE_INPUT_POLL_MS : IDLE_INPUT_POLL_MS;
+  const TickType_t ticks = pdMS_TO_TICKS(waitMs);
+  ulTaskNotifyTake(pdTRUE, ticks > 0 ? ticks : 1);
 }
 
 }  // namespace
@@ -513,9 +776,13 @@ void setupBle() {
 void setup() {
   // Modified SuperMini/nice!nano clone: the external VCC gate pull-up is
   // removed, so P0.13 can keep the unused regulator rail off deterministically.
-  nrf_gpio_cfg_output(NRF_GPIO_PIN_MAP(0, 13));
   nrf_gpio_pin_clear(NRF_GPIO_PIN_MAP(0, 13));
-  Serial.begin(SERIAL_BAUD);
+  nrf_gpio_cfg_output(NRF_GPIO_PIN_MAP(0, 13));
+  lastVbusPresent = isRawVbusPresent();
+  if (lastVbusPresent) {
+    Serial.begin(SERIAL_BAUD);
+    usbVbusActive = true;
+  }
   for (uint8_t index = 0; index < BUTTON_COUNT; index++) {
     nrf_gpio_cfg_input(BUTTON_GPIOS[index], NRF_GPIO_PIN_PULLUP);
     buttons[index].rawPressed = nrf_gpio_pin_read(BUTTON_GPIOS[index]) == 0;
@@ -524,17 +791,23 @@ void setup() {
   nrf_gpio_cfg_input(ENCODER_A_GPIO, NRF_GPIO_PIN_PULLUP);
   nrf_gpio_cfg_input(ENCODER_B_GPIO, NRF_GPIO_PIN_PULLUP);
   encoderState = (nrf_gpio_pin_read(ENCODER_A_GPIO) << 1) | nrf_gpio_pin_read(ENCODER_B_GPIO);
+  setupEncoderWakeInterrupts();
   loadConfig();
   setupBle();
 }
 
 void loop() {
+  updateUsbState();
   const uint32_t now = millis();
-  handleProtocol(Serial);
+  if (usbVbusActive) handleProtocol(Serial);
   handleProtocol(configBle);
   for (uint8_t index = 0; index < BUTTON_COUNT; index++) updateButton(index, now);
-  updateConfigChord(now);
   updateConfigAdvertising(now);
   updateEncoder();
-  delay(2);
+  updateBlePowerProfile(now);
+  if (now - lastBatteryUpdateAt >= BATTERY_UPDATE_INTERVAL_MS) {
+    lastBatteryUpdateAt = now;
+    updateBatteryLevel();
+  }
+  blockUntilNextInput();
 }

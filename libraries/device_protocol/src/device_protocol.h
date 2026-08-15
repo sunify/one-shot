@@ -39,6 +39,7 @@ enum Command : uint8_t {
   CMD_DEVICE_INFO = 0x85,
   CMD_DEVICE_OPTIONS = 0x86,
   CMD_BUTTON_EVENT = 0x90,
+  CMD_ENCODER_EVENT = 0x91,
   CMD_ERROR = 0xFF
 };
 
@@ -52,6 +53,11 @@ enum StatusCode : uint8_t {
 enum ButtonEventState : uint8_t {
   BUTTON_RELEASED = 0x00,
   BUTTON_PRESSED = 0x01
+};
+
+enum EncoderEventDirection : uint8_t {
+  ENCODER_COUNTERCLOCKWISE = 0xFF,
+  ENCODER_CLOCKWISE = 0x01
 };
 
 struct __attribute__((packed)) GestureAction {

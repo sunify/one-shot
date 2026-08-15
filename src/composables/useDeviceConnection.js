@@ -3,6 +3,7 @@ import {
   BUTTON_EVENT_STATE,
   COMMANDS,
   DEVICE_TYPES,
+  ENCODER_EVENT_DIRECTION,
   SERIAL_BAUD,
   STATUS,
   buildFrame,
@@ -135,6 +136,7 @@ export function useDeviceConnection({
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
+  applyEncoderEvent,
   clearButtonEvents,
   deviceDefinition,
   deviceType,
@@ -178,6 +180,21 @@ export function useDeviceConnection({
     const controlId = payload.length >= 2 ? payload[0] : 0
     const state = payload.length >= 2 ? payload[1] : payload[0]
     applyButtonEvent(controlId, state === BUTTON_EVENT_STATE.pressed)
+  }
+
+  function handleEncoderEvent(payload) {
+    if (payload.length < 2) return
+
+    const protocolId = payload[0]
+    const direction = payload[1] === ENCODER_EVENT_DIRECTION.clockwise
+      ? 'cw'
+      : payload[1] === ENCODER_EVENT_DIRECTION.counterclockwise ? 'ccw' : null
+    if (!direction) return
+
+    const control = deviceDefinition.value.controls.find(
+      (candidate, index) => (candidate.protocolId ?? index) === protocolId,
+    )
+    applyEncoderEvent?.(control?.id ?? protocolId, direction)
   }
 
   async function refreshKnownPorts() {
@@ -270,11 +287,15 @@ export function useDeviceConnection({
         applyConfig(decodeConfig(frame.payload, deviceDefinition.value))
       } else if (frame.command === COMMANDS.buttonEvent) {
         handleButtonEvent(frame.payload)
+      } else if (frame.command === COMMANDS.encoderEvent) {
+        handleEncoderEvent(frame.payload)
       } else if (frame.command === COMMANDS.error) {
         statusText.value = `Ошибка устройства: ${frame.payload[0]}`
       }
 
-      if (frame.command !== COMMANDS.buttonEvent) completePending(frame)
+      if (frame.command !== COMMANDS.buttonEvent && frame.command !== COMMANDS.encoderEvent) {
+        completePending(frame)
+      }
     }
   }
 
@@ -300,6 +321,8 @@ export function useDeviceConnection({
     for (const frame of parsed.frames) {
       if (frame.command === COMMANDS.buttonEvent && frame.payload.length > 0) {
         handleButtonEvent(frame.payload)
+      } else if (frame.command === COMMANDS.encoderEvent) {
+        handleEncoderEvent(frame.payload)
       }
     }
   }
