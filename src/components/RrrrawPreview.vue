@@ -1,7 +1,9 @@
 <script setup>
 import { computed } from 'vue'
-import previewSvg from '../../rrrraw.svg'
+import baseSvg from '../assets/rrrraw-base.svg'
+import encoderSvg from '../assets/rrrraw-encoder.svg'
 import encoderPhaseSvg from '../assets/rrrraw-encoder-phase.svg'
+import keySvg from '../assets/rrrraw-key.svg'
 
 const props = defineProps({
   activeAnimation: {
@@ -27,30 +29,17 @@ const rotationDirection = computed(() => (
 
 <template>
   <div class="rrrraw-preview" :style="{ width: `${width}px` }">
-    <img class="preview-base" :src="previewSvg" alt="rrrraw">
-    <svg class="explode-masks" viewBox="0 0 1396 1118" aria-hidden="true">
-      <rect x="150" y="300" width="280" height="205" />
-      <path
-        d="M320 38C445 38 533 96 534 190L535 292C514 361 414 407 300 411C190 410 90 360 81 296L81 190C83 110 184 38 320 38Z"
-        transform="translate(800 0)"
-      />
-    </svg>
+    <img class="preview-base" :src="baseSvg" alt="rrrraw">
 
-    <svg
+    <img
       v-for="number in 3"
       :key="number"
       class="installed-key"
       :class="[`key-${number}`, { pressed: pressedControls[`button${number}`] }]"
-      viewBox="160 320 250 180"
+      :src="keySvg"
+      alt=""
       aria-hidden="true"
     >
-      <path
-        d="M270 332L401 397L402 445L282 489L164 430L164 387Z"
-        fill="#fff"
-        stroke="none"
-      />
-      <image :href="previewSvg" width="1396" height="1118" />
-    </svg>
 
     <div
       class="installed-encoder"
@@ -63,21 +52,7 @@ const rotationDirection = computed(() => (
       ]"
       aria-hidden="true"
     >
-      <svg class="encoder-base" viewBox="0 0 632 476">
-        <defs>
-          <clipPath id="rrrraw-encoder-clip">
-            <path d="M320 38C445 38 533 96 534 190L535 292C514 361 414 407 300 411C190 410 90 360 81 296L81 190C83 110 184 38 320 38Z" />
-          </clipPath>
-        </defs>
-        <path
-          d="M320 38C445 38 533 96 534 190L535 292C514 361 414 407 300 411C190 410 90 360 81 296L81 190C83 110 184 38 320 38Z"
-          fill="#fff"
-          stroke="none"
-        />
-        <g clip-path="url(#rrrraw-encoder-clip)">
-          <image :href="previewSvg" x="-800" width="1396" height="1118" />
-        </g>
-      </svg>
+      <img class="encoder-base" :src="encoderSvg" alt="">
       <img class="encoder-phase" :src="encoderPhaseSvg" alt="">
       <svg class="encoder-dimple" viewBox="0 0 632 476">
         <ellipse class="dimple-eraser" cx="452" cy="185" rx="49" ry="31" />
@@ -127,31 +102,18 @@ const rotationDirection = computed(() => (
   z-index: 0;
 }
 
-.explode-masks {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: block;
-  width: 100%;
-  height: 100%;
-  fill: #fff;
-  stroke: none;
-  pointer-events: none;
-}
-
 .installed-key,
 .installed-encoder {
   position: absolute;
-  z-index: 2;
+  z-index: 1;
   display: block;
   pointer-events: none;
   transition: transform 100ms ease-out;
 }
 
 .installed-key {
-  width: 10.745%;
-  height: 9.66%;
-  overflow: visible;
+  width: 20.057%;
+  height: 18.784%;
 }
 
 .installed-key.pressed,
@@ -160,18 +122,18 @@ const rotationDirection = computed(() => (
 }
 
 .key-1 {
-  top: 60.73%;
-  left: 14.18%;
+  top: 56.17%;
+  left: 9.81%;
 }
 
 .key-2 {
-  top: 67.44%;
-  left: 24.21%;
+  top: 62.88%;
+  left: 19.77%;
 }
 
 .key-3 {
-  top: 74.15%;
-  left: 34.24%;
+  top: 69.59%;
+  left: 29.8%;
 }
 
 .installed-encoder {
@@ -194,12 +156,12 @@ const rotationDirection = computed(() => (
 }
 
 .dimple-eraser {
-  fill: #fff;
+  fill: #ffbd00;
   stroke: none;
 }
 
 .dimple {
-  fill: #fff;
+  fill: #ffbd00;
   stroke: #000;
   stroke-width: 2.5;
   transform-box: fill-box;
@@ -220,7 +182,7 @@ const rotationDirection = computed(() => (
 
 .hit-area {
   position: absolute;
-  z-index: 3;
+  z-index: 2;
   display: block;
   padding: 0;
   border: 0;
@@ -229,24 +191,24 @@ const rotationDirection = computed(() => (
 }
 
 .button-hit {
-  width: 11%;
-  height: 9%;
+  width: 17%;
+  height: 14%;
   transform: rotate(29deg);
 }
 
 .button-hit.button-1 {
-  top: 61%;
-  left: 14%;
+  top: 58%;
+  left: 11%;
 }
 
 .button-hit.button-2 {
-  top: 68%;
-  left: 24%;
+  top: 65%;
+  left: 21%;
 }
 
 .button-hit.button-3 {
-  top: 75%;
-  left: 34%;
+  top: 72%;
+  left: 31%;
 }
 
 .encoder-hit {
