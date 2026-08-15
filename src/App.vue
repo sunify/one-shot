@@ -36,6 +36,7 @@ const { colorPreviewStyle, isRainbow } = useLightingPreview(form, caseColors, su
 
 const {
   connect,
+  connectBluetooth,
   disconnect,
   isBusy,
   isConnected,
@@ -183,9 +184,17 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
   <main class="shell" :class="{ 'connected': isConnected }" :style="colorPreviewStyle">
     <section class="hero">
       <h1 v-html="appTitle" />
-      <button v-if="!isConnected" class="button primary" :disabled="isBusy || isConnecting" @click="connect">
-        {{ isConnecting ? 'Подключение...' : 'Подключить устройство' }}
-      </button>
+      <div v-if="!isConnected" class="connection-actions">
+        <button class="button primary" :disabled="isBusy || isConnecting" @click="connectBluetooth">
+          {{ isConnecting ? 'Подключение...' : 'Подключить по Bluetooth' }}
+        </button>
+        <button class="button secondary" :disabled="isBusy || isConnecting" @click="connect">
+          Подключить по USB
+        </button>
+      </div>
+      <p v-if="!isConnected" class="connection-hint">
+        Для BLE-конфигурации переведите устройство в режим настройки.
+      </p>
     </section>
 
     <PanelSection :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
@@ -276,8 +285,21 @@ h1 {
   color: var(--color-title);
 }
 
-h1 + .primary {
+.connection-actions {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   margin-top: 2rem;
+}
+
+.connection-hint {
+  color: var(--color-title);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  margin: 1rem auto 0;
+  max-width: 25rem;
+  opacity: 0.5;
 }
 
 h2 {
@@ -293,6 +315,13 @@ h2 {
   line-height: 1;
   text-align: center;
   font-weight: 500;
+}
+
+.secondary {
+  background: transparent;
+  color: var(--color-title);
+  font-size: 0.9rem;
+  padding: 8px 12px;
 }
 
 .primary:disabled {

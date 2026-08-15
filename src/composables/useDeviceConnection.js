@@ -15,6 +15,10 @@ import {
 } from '../protocol'
 import { hasDeviceDefinition } from '../devices/deviceDefinitions'
 
+const BLE_CONFIG_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+const BLE_CONFIG_RX_CHARACTERISTIC = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'
+const BLE_CONFIG_TX_CHARACTERISTIC = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
+
 function mergeBuffers(current, chunk) {
   const merged = new Uint8Array(current.length + chunk.length)
   merged.set(current)
@@ -141,6 +145,9 @@ export function useDeviceConnection({
   const writer = ref(null)
   const hidDevice = ref(null)
   const hidMode = ref(null)
+  const bluetoothDevice = ref(null)
+  const bluetoothRx = ref(null)
+  const bluetoothTx = ref(null)
   const transport = ref(null)
   const isConnected = ref(false)
   const isConnecting = ref(false)
@@ -243,29 +250,41 @@ export function useDeviceConnection({
           break
         }
 
-        receiveBuffer.value = mergeBuffers(receiveBuffer.value, result.value)
-        const parsed = parseFrames(receiveBuffer.value)
-        receiveBuffer.value = parsed.rest
-
-        for (const frame of parsed.frames) {
-          if (frame.command === COMMANDS.config) {
-            applyConfig(decodeConfig(frame.payload, deviceDefinition.value))
-          } else if (frame.command === COMMANDS.buttonEvent) {
-            handleButtonEvent(frame.payload)
-          } else if (frame.command === COMMANDS.error) {
-            statusText.value = `Ошибка устройства: ${frame.payload[0]}`
-          }
-
-          if (frame.command !== COMMANDS.buttonEvent) {
-            completePending(frame)
-          }
-        }
+        processIncomingChunk(result.value)
       }
     } catch (error) {
       statusText.value = error.message
     } finally {
       isConnected.value = false
     }
+  }
+
+  function processIncomingChunk(chunk) {
+    receiveBuffer.value = mergeBuffers(receiveBuffer.value, chunk)
+    const parsed = parseFrames(receiveBuffer.value)
+    receiveBuffer.value = parsed.rest
+
+    for (const frame of parsed.frames) {
+      if (frame.command === COMMANDS.config) {
+        applyConfig(decodeConfig(frame.payload, deviceDefinition.value))
+      } else if (frame.command === COMMANDS.buttonEvent) {
+        handleButtonEvent(frame.payload)
+      } else if (frame.command === COMMANDS.error) {
+        statusText.value = `Ошибка устройства: ${frame.payload[0]}`
+      }
+
+      if (frame.command !== COMMANDS.buttonEvent) completePending(frame)
+    }
+  }
+
+  function handleBluetoothNotification(event) {
+    processIncomingChunk(dataViewToUint8Array(event.target.value))
+  }
+
+  async function handleBluetoothDisconnect() {
+    if (transport.value !== 'bluetooth') return
+    statusText.value = 'Bluetooth-устройство отключено'
+    await disconnect({ preserveStatus: true })
   }
 
   function handleHidInputReport(event) {
@@ -303,6 +322,9 @@ export function useDeviceConnection({
       writer.value?.releaseLock()
       await port.value?.close()
       await hidDevice.value?.close()
+      bluetoothTx.value?.removeEventListener('characteristicvaluechanged', handleBluetoothNotification)
+      bluetoothDevice.value?.removeEventListener('gattserverdisconnected', handleBluetoothDisconnect)
+      bluetoothDevice.value?.gatt?.disconnect()
     } catch (error) {
       statusText.value = error.message
     } finally {
@@ -311,6 +333,9 @@ export function useDeviceConnection({
       port.value = null
       hidDevice.value = null
       hidMode.value = null
+      bluetoothDevice.value = null
+      bluetoothRx.value = null
+      bluetoothTx.value = null
       transport.value = null
       isConnected.value = false
       await refreshKnownPorts()
@@ -322,6 +347,21 @@ export function useDeviceConnection({
   }
 
   async function sendCommand(command, payload = new Uint8Array(), expected = [COMMANDS.ack], timeoutMs = 1500) {
+    if (transport.value === 'bluetooth') {
+      if (!bluetoothDevice.value?.gatt?.connected || !bluetoothRx.value) {
+        throw new Error('Сначала подключите устройство')
+      }
+
+      const responsePromise = waitForFrame(expected, timeoutMs)
+      const frame = buildFrame(command, payload)
+      if (typeof bluetoothRx.value.writeValueWithResponse === 'function') {
+        await bluetoothRx.value.writeValueWithResponse(frame)
+      } else {
+        await bluetoothRx.value.writeValue(frame)
+      }
+      return responsePromise
+    }
+
     if (transport.value === 'hid') {
       if (!hidDevice.value?.opened) {
         throw new Error('Сначала подключите устройство')
@@ -526,7 +566,7 @@ export function useDeviceConnection({
 
     if (frame.payload.length > 2) {
       productName.value = new TextDecoder().decode(frame.payload.slice(2))
-    } else {
+    } else if (transport.value !== 'bluetooth') {
       productName.value = ''
     }
 
@@ -689,6 +729,54 @@ export function useDeviceConnection({
     }
   }
 
+  async function connectBluetooth() {
+    if (!('bluetooth' in navigator)) {
+      statusText.value = 'Web Bluetooth недоступен в этом браузере'
+      return
+    }
+
+    try {
+      isConnecting.value = true
+      if (port.value || hidDevice.value || bluetoothDevice.value || isConnected.value) {
+        await disconnect()
+      }
+
+      bluetoothDevice.value = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [BLE_CONFIG_SERVICE] }],
+        optionalServices: [BLE_CONFIG_SERVICE],
+      })
+      bluetoothDevice.value.addEventListener('gattserverdisconnected', handleBluetoothDisconnect)
+
+      statusText.value = 'Подключение по Bluetooth...'
+      const server = await bluetoothDevice.value.gatt.connect()
+      const service = await server.getPrimaryService(BLE_CONFIG_SERVICE)
+      bluetoothRx.value = await service.getCharacteristic(BLE_CONFIG_RX_CHARACTERISTIC)
+      bluetoothTx.value = await service.getCharacteristic(BLE_CONFIG_TX_CHARACTERISTIC)
+      bluetoothTx.value.addEventListener('characteristicvaluechanged', handleBluetoothNotification)
+      await bluetoothTx.value.startNotifications()
+
+      transport.value = 'bluetooth'
+      receiveBuffer.value = new Uint8Array()
+      hasRememberedPort.value = true
+      hasAvailablePort.value = true
+      productName.value = bluetoothDevice.value.name ?? ''
+      statusText.value = 'Проверяем устройство...'
+      await verifyDevice()
+      await fetchDeviceInfo()
+      await refreshConfig()
+      await refreshDeviceOptions()
+      isConnected.value = true
+      statusText.value = 'Подключено'
+    } catch (error) {
+      if (bluetoothDevice.value) await disconnect({ preserveStatus: true })
+      statusText.value = error?.name === 'NotFoundError'
+        ? 'Bluetooth-устройство не выбрано'
+        : error?.message || 'Не удалось подключиться по Bluetooth'
+    } finally {
+      isConnecting.value = false
+    }
+  }
+
   async function saveConfig() {
     await withBusyState(async () => {
       const payload = encodeConfig(form, deviceDefinition.value)
@@ -730,7 +818,7 @@ export function useDeviceConnection({
   }
 
   onMounted(async () => {
-    if (!('serial' in navigator) && !('hid' in navigator)) {
+    if (!('serial' in navigator) && !('hid' in navigator) && !('bluetooth' in navigator)) {
       statusText.value = 'Конфигуратор работает только в Хроме'
       return
     }
@@ -753,6 +841,7 @@ export function useDeviceConnection({
 
   return {
     connect,
+    connectBluetooth,
     disconnect,
     hasAvailablePort,
     hasRememberedPort,
