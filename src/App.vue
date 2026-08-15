@@ -146,6 +146,14 @@ function handlePreviewPress(previewId = 'main') {
   }, 120)
 }
 
+function handlePreviewPressStart(previewId) {
+  setPreviewSurfacePressed(previewId, true)
+}
+
+function handlePreviewPressEnd(previewId) {
+  setPreviewSurfacePressed(previewId, false)
+}
+
 function delay(ms) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
@@ -216,6 +224,8 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
         :pressed-controls="controlPressStates"
         :width="deviceDefinition.previewWidth ?? 250"
         @press="handlePreviewPress"
+        @press-start="handlePreviewPressStart"
+        @press-end="handlePreviewPressEnd"
       />
       <ColorControl
         v-if="isConnected && supportsLighting"
