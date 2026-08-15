@@ -470,10 +470,14 @@ void handleProtocol(Stream &transport) {
 }
 
 void startAdvertising() {
+  Bluefruit.Advertising.stop();
+  Bluefruit.Advertising.clearData();
+  Bluefruit.ScanResponse.clearData();
+
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addAppearance(BLE_APPEARANCE_HID_KEYBOARD);
-  Bluefruit.Advertising.addService(hid);
   Bluefruit.Advertising.addService(configBle);
+  Bluefruit.ScanResponse.addService(hid);
   Bluefruit.ScanResponse.addName();
   Bluefruit.Advertising.restartOnDisconnect(true);
   Bluefruit.Advertising.setInterval(32, 160);
