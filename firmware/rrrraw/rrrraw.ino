@@ -19,9 +19,14 @@ const uint16_t DEBOUNCE_MS = 12;
 const uint16_t LONG_PRESS_MS = 600;
 const uint16_t CONFIG_CHORD_HOLD_MS = 2000;
 const uint32_t CONFIG_ADVERTISING_TIMEOUT_MS = 60UL * 1000UL;
+const uint32_t IDLE_SLEEP_TIMEOUT_MS = 15UL * 1000UL;
+const uint32_t DEEP_SLEEP_TIMEOUT_MS = 4UL * 60UL * 60UL * 1000UL;
+const uint32_t DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS = 90UL * 60UL * 1000UL;
+const uint32_t MAX_IDLE_BLOCK_MS = 15UL * 1000UL;
+const uint32_t PENDING_WAKE_ACTION_MAX_AGE_MS = 2UL * 60UL * 1000UL;
+const uint16_t PENDING_WAKE_ACTION_READY_DELAY_MS = 500;
 const uint32_t BATTERY_UPDATE_INTERVAL_MS = 5UL * 60UL * 1000UL;
 const uint8_t BATTERY_SAMPLE_COUNT = 3;
-const uint16_t IDLE_INPUT_POLL_MS = 8;
 const uint16_t ACTIVE_INPUT_POLL_MS = 1;
 const uint16_t BLE_CONN_INTERVAL_MIN = 9;
 const uint16_t BLE_CONN_INTERVAL_MAX = 12;
@@ -29,16 +34,16 @@ const uint16_t BLE_IDLE_CONN_INTERVAL = 12;
 const uint16_t BLE_IDLE_CONN_SLAVE_LATENCY = 15;
 const uint16_t BLE_CONN_SUPERVISION_TIMEOUT = 400;
 const uint32_t BLE_IDLE_PARAMS_DELAY_MS = 2000;
-// Bench mode: keep a second BLE slot discoverable while the HID connection is active.
-// Disable before battery-life measurements and the production build.
-const bool ALWAYS_ADVERTISE_CONFIG = true;
+// Production mode: expose the configuration connection only after the
+// two outer buttons have been held for CONFIG_CHORD_HOLD_MS.
+const bool ALWAYS_ADVERTISE_CONFIG = false;
 const uint8_t BUTTON_COUNT = 4;
 
 // Defaults use exposed nice!nano-compatible GPIOs and avoid NFC, reset,
 // external-flash and the modified SuperMini power-control pin P0.13.
 #ifndef RRRRAW_BUTTON1_PORT
-#define RRRRAW_BUTTON1_PORT 1
-#define RRRRAW_BUTTON1_PIN 4
+#define RRRRAW_BUTTON1_PORT 0
+#define RRRRAW_BUTTON1_PIN 17
 #endif
 #ifndef RRRRAW_BUTTON2_PORT
 #define RRRRAW_BUTTON2_PORT 0
@@ -116,8 +121,18 @@ uint32_t bleSecuredAt = 0;
 bool bleIdleParamsRequested = false;
 bool usbVbusActive = false;
 bool lastVbusPresent = false;
-bool encoderWakeInterruptsAttached = false;
+bool inputWakeInterruptsAttached = false;
+bool sleeping = false;
+uint32_t lastActivityAt = 0;
+int8_t pendingWakeButton = -1;
+uint32_t pendingWakeActionAt = 0;
 TaskHandle_t loopTaskHandle = nullptr;
+
+void exitSleep();
+
+void markActivity(uint32_t now = millis()) {
+  lastActivityAt = now;
+}
 
 bool isRawVbusPresent() {
 #if NRF_POWER_HAS_USBREG
@@ -137,6 +152,7 @@ void updateUsbState() {
     TinyUSBDevice.detach();
     Serial.end();
     usbVbusActive = false;
+    markActivity();
   }
   lastVbusPresent = vbusPresent;
 }
@@ -163,13 +179,32 @@ bool remapInterruptChannel(int interruptMask, uint8_t port, uint8_t pin) {
   return true;
 }
 
-void setupEncoderWakeInterrupts() {
+void setupInputWakeInterrupts() {
   loopTaskHandle = xTaskGetCurrentTaskHandle();
-  const int interruptA = attachInterrupt(0, inputWakeInterrupt, CHANGE);
-  const int interruptB = attachInterrupt(1, inputWakeInterrupt, CHANGE);
-  encoderWakeInterruptsAttached =
-      remapInterruptChannel(interruptA, RRRRAW_ENCODER_A_PORT, RRRRAW_ENCODER_A_PIN) &&
-      remapInterruptChannel(interruptB, RRRRAW_ENCODER_B_PORT, RRRRAW_ENCODER_B_PIN);
+  const uint8_t ports[] = {
+      RRRRAW_BUTTON1_PORT,
+      RRRRAW_BUTTON2_PORT,
+      RRRRAW_BUTTON3_PORT,
+      RRRRAW_ENCODER_BUTTON_PORT,
+      RRRRAW_ENCODER_A_PORT,
+      RRRRAW_ENCODER_B_PORT,
+  };
+  const uint8_t pins[] = {
+      RRRRAW_BUTTON1_PIN,
+      RRRRAW_BUTTON2_PIN,
+      RRRRAW_BUTTON3_PIN,
+      RRRRAW_ENCODER_BUTTON_PIN,
+      RRRRAW_ENCODER_A_PIN,
+      RRRRAW_ENCODER_B_PIN,
+  };
+
+  inputWakeInterruptsAttached = true;
+  for (uint8_t index = 0; index < 6; index++) {
+    const int interruptMask = attachInterrupt(index, inputWakeInterrupt, CHANGE);
+    if (!remapInterruptChannel(interruptMask, ports[index], pins[index])) {
+      inputWakeInterruptsAttached = false;
+    }
+  }
 }
 
 void ensureBleFastProfile() {
@@ -206,6 +241,8 @@ void connectCallback(uint16_t connHandle) {
   }
   bleSecuredAt = 0;
   bleIdleParamsRequested = false;
+  exitSleep();
+  markActivity();
   wakeLoopTask();
 }
 
@@ -214,6 +251,7 @@ void disconnectCallback(uint16_t connHandle, uint8_t reason) {
   (void) reason;
   bleSecuredAt = 0;
   bleIdleParamsRequested = false;
+  if (!sleeping) markActivity();
   wakeLoopTask();
 }
 
@@ -221,6 +259,8 @@ void securedCallback(uint16_t connHandle) {
   (void) connHandle;
   bleSecuredAt = millis();
   bleIdleParamsRequested = false;
+  exitSleep();
+  markActivity();
   wakeLoopTask();
 }
 
@@ -519,6 +559,8 @@ void updateButton(uint8_t index, uint32_t now) {
   ButtonRuntime &runtime = buttons[index];
   const bool rawPressed = nrf_gpio_pin_read(BUTTON_GPIOS[index]) == 0;
   if (rawPressed != runtime.rawPressed) {
+    exitSleep();
+    markActivity(now);
     runtime.rawPressed = rawPressed;
     runtime.rawChangedAt = now;
   }
@@ -552,6 +594,10 @@ void sampleEncoder() {
       -1, 0, 0, 1, 0, 1, -1, 0,
   };
   const uint8_t next = (nrf_gpio_pin_read(ENCODER_A_GPIO) << 1) | nrf_gpio_pin_read(ENCODER_B_GPIO);
+  if (next != encoderState) {
+    exitSleep();
+    markActivity();
+  }
   encoderAccumulator += transitions[(encoderState << 2) | next];
   encoderState = next;
   if (encoderAccumulator >= 4) {
@@ -760,20 +806,253 @@ bool anyButtonActive() {
   return false;
 }
 
-void blockUntilNextInput() {
-  if (!encoderWakeInterruptsAttached || usbVbusActive || Serial.available() > 0) {
+bool hasActiveBleConnection() {
+  for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
+    BLEConnection *connection = Bluefruit.Connection(handle);
+    if (connection && connection->connected()) return true;
+  }
+  return false;
+}
+
+bool hasSecuredBleConnection() {
+  for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
+    BLEConnection *connection = Bluefruit.Connection(handle);
+    if (connection && connection->connected() && connection->secured()) return true;
+  }
+  return false;
+}
+
+void flushPendingWakeAction(uint32_t now) {
+  if (pendingWakeButton < 0) return;
+  if (now - pendingWakeActionAt >= PENDING_WAKE_ACTION_MAX_AGE_MS) {
+    pendingWakeButton = -1;
+    return;
+  }
+  if (!hasSecuredBleConnection() || bleSecuredAt == 0 ||
+      now - bleSecuredAt < PENDING_WAKE_ACTION_READY_DELAY_MS) return;
+
+  const uint8_t buttonIndex = static_cast<uint8_t>(pendingWakeButton);
+  pendingWakeButton = -1;
+  sendAction(singleAction(buttonIndex));
+}
+
+uint32_t currentDeepSleepTimeoutMs() {
+  return hasActiveBleConnection()
+      ? DEEP_SLEEP_TIMEOUT_MS
+      : DISCONNECTED_DEEP_SLEEP_TIMEOUT_MS;
+}
+
+void enterSleep() {
+  if (sleeping) return;
+  sleeping = true;
+  Bluefruit.Advertising.restartOnDisconnect(false);
+  if (!hasActiveBleConnection()) Bluefruit.Advertising.stop();
+}
+
+void exitSleep() {
+  if (!sleeping) return;
+  sleeping = false;
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  if (!hasActiveBleConnection()) startAdvertising();
+  markActivity();
+}
+
+void disableAllGpioSense() {
+  for (uint8_t pin = 0; pin < 32; pin++) {
+    NRF_P0->PIN_CNF[pin] =
+        (NRF_P0->PIN_CNF[pin] & ~GPIO_PIN_CNF_SENSE_Msk) |
+        (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+  }
+#if defined(NRF_P1)
+  for (uint8_t pin = 0; pin < 32; pin++) {
+    NRF_P1->PIN_CNF[pin] =
+        (NRF_P1->PIN_CNF[pin] & ~GPIO_PIN_CNF_SENSE_Msk) |
+        (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+  }
+#endif
+}
+
+void restoreInputPins() {
+  for (uint8_t index = 0; index < BUTTON_COUNT; index++) {
+    nrf_gpio_cfg_input(BUTTON_GPIOS[index], NRF_GPIO_PIN_PULLUP);
+  }
+  nrf_gpio_cfg_input(ENCODER_A_GPIO, NRF_GPIO_PIN_PULLUP);
+  nrf_gpio_cfg_input(ENCODER_B_GPIO, NRF_GPIO_PIN_PULLUP);
+}
+
+bool prepareSystemOffWake() {
+  if (anyButtonActive()) return false;
+
+  disableAllGpioSense();
+  for (uint8_t index = 0; index < BUTTON_COUNT; index++) {
+    nrf_gpio_cfg_sense_input(
+        BUTTON_GPIOS[index], NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
+  }
+
+  const nrf_gpio_pin_sense_t encoderASense = nrf_gpio_pin_read(ENCODER_A_GPIO)
+      ? NRF_GPIO_PIN_SENSE_LOW
+      : NRF_GPIO_PIN_SENSE_HIGH;
+  const nrf_gpio_pin_sense_t encoderBSense = nrf_gpio_pin_read(ENCODER_B_GPIO)
+      ? NRF_GPIO_PIN_SENSE_LOW
+      : NRF_GPIO_PIN_SENSE_HIGH;
+  nrf_gpio_cfg_sense_input(ENCODER_A_GPIO, NRF_GPIO_PIN_PULLUP, encoderASense);
+  nrf_gpio_cfg_sense_input(ENCODER_B_GPIO, NRF_GPIO_PIN_PULLUP, encoderBSense);
+
+  NRF_P0->LATCH = 0xFFFFFFFF;
+#if defined(NRF_P1)
+  NRF_P1->LATCH = 0xFFFFFFFF;
+#endif
+  NRF_GPIOTE->EVENTS_PORT = 0;
+  delay(10);
+
+  const bool wakePending = anyButtonActive() || NRF_P0->LATCH != 0
+#if defined(NRF_P1)
+      || NRF_P1->LATCH != 0
+#endif
+      ;
+  if (wakePending) {
+    disableAllGpioSense();
+    restoreInputPins();
+    NRF_P0->LATCH = 0xFFFFFFFF;
+#if defined(NRF_P1)
+    NRF_P1->LATCH = 0xFFFFFFFF;
+#endif
+    return false;
+  }
+  return true;
+}
+
+void disconnectAllBleConnections() {
+  for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
+    BLEConnection *connection = Bluefruit.Connection(handle);
+    if (connection && connection->connected()) connection->disconnect();
+  }
+}
+
+void enterSystemOff() {
+  if (!prepareSystemOffWake()) {
+    markActivity();
+    return;
+  }
+
+  Bluefruit.Advertising.restartOnDisconnect(false);
+  disconnectAllBleConnections();
+  delay(30);
+  Bluefruit.Advertising.stop();
+  delay(10);
+
+#if defined(NRF_SAADC)
+  NRF_SAADC->ENABLE = 0;
+#endif
+#if defined(NRF_UARTE0)
+  NRF_UARTE0->ENABLE = 0;
+#endif
+#if defined(NRF_UARTE1)
+  NRF_UARTE1->ENABLE = 0;
+#endif
+
+  uint8_t softDeviceEnabled = 0;
+  (void) sd_softdevice_is_enabled(&softDeviceEnabled);
+  if (softDeviceEnabled) sd_power_system_off();
+  else NRF_POWER->SYSTEMOFF = 1;
+  __DSB();
+  while (true) __WFE();
+}
+
+bool shouldEnterSleep(uint32_t now) {
+  if (usbVbusActive || anyButtonActive() || pendingEncoderSteps != 0 ||
+      configAdvertisingActive || pendingWakeButton >= 0) {
+    return false;
+  }
+  return now - lastActivityAt >= IDLE_SLEEP_TIMEOUT_MS;
+}
+
+uint32_t millisecondsUntil(uint32_t now, uint32_t deadline) {
+  const int32_t remaining = static_cast<int32_t>(deadline - now);
+  return remaining > 0 ? static_cast<uint32_t>(remaining) : 0;
+}
+
+void shortenWait(uint32_t &waitMs, uint32_t candidateMs) {
+  if (candidateMs < waitMs) waitMs = candidateMs;
+}
+
+uint32_t nextLoopWaitMs(uint32_t now) {
+  uint32_t waitMs = MAX_IDLE_BLOCK_MS;
+  shortenWait(
+      waitMs,
+      millisecondsUntil(
+          now,
+          lastActivityAt + (sleeping ? currentDeepSleepTimeoutMs() : IDLE_SLEEP_TIMEOUT_MS)));
+  shortenWait(waitMs, millisecondsUntil(now, lastBatteryUpdateAt + BATTERY_UPDATE_INTERVAL_MS));
+  if (!bleIdleParamsRequested && bleSecuredAt != 0) {
+    shortenWait(waitMs, millisecondsUntil(now, bleSecuredAt + BLE_IDLE_PARAMS_DELAY_MS));
+  }
+  if (configAdvertisingActive) {
+    shortenWait(waitMs, millisecondsUntil(now, configAdvertisingUntil));
+  }
+  if (pendingWakeButton >= 0) {
+    shortenWait(
+        waitMs,
+        millisecondsUntil(now, pendingWakeActionAt + PENDING_WAKE_ACTION_MAX_AGE_MS));
+    if (bleSecuredAt != 0) {
+      shortenWait(
+          waitMs,
+          millisecondsUntil(now, bleSecuredAt + PENDING_WAKE_ACTION_READY_DELAY_MS));
+    }
+  }
+  return waitMs;
+}
+
+void blockUntilNextInput(uint32_t now) {
+  if (!inputWakeInterruptsAttached || usbVbusActive || Serial.available() > 0 ||
+      anyButtonActive() || pendingEncoderSteps != 0) {
     delay(ACTIVE_INPUT_POLL_MS);
     return;
   }
-  const uint16_t waitMs =
-      anyButtonActive() || pendingEncoderSteps != 0 ? ACTIVE_INPUT_POLL_MS : IDLE_INPUT_POLL_MS;
+
+  const uint32_t waitMs = nextLoopWaitMs(now);
+  if (waitMs == 0) {
+    taskYIELD();
+    return;
+  }
   const TickType_t ticks = pdMS_TO_TICKS(waitMs);
   ulTaskNotifyTake(pdTRUE, ticks > 0 ? ticks : 1);
+}
+
+void idleSleep(uint32_t now) {
+  if (sleeping && !usbVbusActive && !configAdvertisingActive && pendingWakeButton < 0 &&
+      now - lastActivityAt >= currentDeepSleepTimeoutMs()) {
+    enterSystemOff();
+    return;
+  }
+  if (shouldEnterSleep(now)) enterSleep();
+  blockUntilNextInput(now);
 }
 
 }  // namespace
 
 void setup() {
+  const uint32_t p0Latch = NRF_P0->LATCH;
+#if defined(NRF_P1)
+  const uint32_t p1Latch = NRF_P1->LATCH;
+#endif
+  for (uint8_t index = 0; index < BUTTON_COUNT; index++) {
+    const uint32_t gpio = BUTTON_GPIOS[index];
+    const bool latched = gpio < 32
+        ? (p0Latch & (1UL << gpio)) != 0
+#if defined(NRF_P1)
+        : (p1Latch & (1UL << (gpio - 32))) != 0
+#else
+        : false
+#endif
+        ;
+    if (latched && pendingWakeButton < 0) pendingWakeButton = index;
+  }
+  NRF_P0->LATCH = 0xFFFFFFFF;
+#if defined(NRF_P1)
+  NRF_P1->LATCH = 0xFFFFFFFF;
+#endif
+
   // Modified SuperMini/nice!nano clone: the external VCC gate pull-up is
   // removed, so P0.13 can keep the unused regulator rail off deterministically.
   nrf_gpio_pin_clear(NRF_GPIO_PIN_MAP(0, 13));
@@ -787,27 +1066,36 @@ void setup() {
     nrf_gpio_cfg_input(BUTTON_GPIOS[index], NRF_GPIO_PIN_PULLUP);
     buttons[index].rawPressed = nrf_gpio_pin_read(BUTTON_GPIOS[index]) == 0;
     buttons[index].pressed = buttons[index].rawPressed;
+    if (pendingWakeButton == static_cast<int8_t>(index)) buttons[index].longTriggered = true;
   }
   nrf_gpio_cfg_input(ENCODER_A_GPIO, NRF_GPIO_PIN_PULLUP);
   nrf_gpio_cfg_input(ENCODER_B_GPIO, NRF_GPIO_PIN_PULLUP);
   encoderState = (nrf_gpio_pin_read(ENCODER_A_GPIO) << 1) | nrf_gpio_pin_read(ENCODER_B_GPIO);
-  setupEncoderWakeInterrupts();
+  setupInputWakeInterrupts();
   loadConfig();
   setupBle();
+  markActivity();
+  if (pendingWakeButton >= 0) pendingWakeActionAt = millis();
 }
 
 void loop() {
   updateUsbState();
   const uint32_t now = millis();
+  if ((usbVbusActive && Serial.available() > 0) || configBle.available() > 0) {
+    exitSleep();
+    markActivity(now);
+  }
   if (usbVbusActive) handleProtocol(Serial);
   handleProtocol(configBle);
   for (uint8_t index = 0; index < BUTTON_COUNT; index++) updateButton(index, now);
+  updateConfigChord(now);
   updateConfigAdvertising(now);
   updateEncoder();
   updateBlePowerProfile(now);
+  flushPendingWakeAction(now);
   if (now - lastBatteryUpdateAt >= BATTERY_UPDATE_INTERVAL_MS) {
     lastBatteryUpdateAt = now;
     updateBatteryLevel();
   }
-  blockUntilNextInput();
+  idleSleep(now);
 }
