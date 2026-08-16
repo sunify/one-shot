@@ -135,6 +135,10 @@ export const HOTKEY_KEY_OPTIONS = [
   { label: 'Esc', code: 0x29 },
   { label: 'Enter', code: 0x28 },
   { label: 'Backspace', code: 0x2a },
+  { label: '↑ Вверх', code: 0x52 },
+  { label: '↓ Вниз', code: 0x51 },
+  { label: '← Влево', code: 0x50 },
+  { label: '→ Вправо', code: 0x4f },
   ...'1234567890'.split('').map((label, index) => ({
     label,
     code: 0x1e + index,
