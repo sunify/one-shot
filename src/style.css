@@ -28,6 +28,11 @@
   color: var(--color-text);
 }
 
+html {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 body {
   margin: 0 auto;
   min-width: 700px;
