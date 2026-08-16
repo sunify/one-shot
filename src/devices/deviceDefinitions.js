@@ -84,6 +84,7 @@ export const DEVICE_DEFINITIONS = {
     type: DEVICE_TYPES.oneShot,
     name: 'One Shot',
     preview: OneShotPreview,
+    previewWidth: 375,
     controls: [
       {
         id: 'main',
@@ -142,8 +143,9 @@ export const DEVICE_DEFINITIONS = {
   },
   [DEVICE_TYPES.magicButton]: {
     type: DEVICE_TYPES.magicButton,
-    name: 'Волшебная кнопка',
+    name: 'Magic',
     preview: OneShotPreview,
+    previewWidth: 375,
     controls: [
       {
         id: 'main',
@@ -245,7 +247,7 @@ export const DEVICE_DEFINITIONS = {
   [DEVICE_TYPES.rrrraw]: {
     type: DEVICE_TYPES.rrrraw,
     name: 'rrrraw',
-    configuratorTitle: 'Конфигуратор<br />Krutilki',
+    configuratorTitle: 'Rrrraw',
     preview: RrrrawPreview,
     previewWidth: 562.5,
     controls: [

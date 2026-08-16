@@ -8,7 +8,20 @@ import PanelSection from './components/layout/PanelSection.vue'
 import { useConfiguratorState } from './composables/useConfiguratorState'
 import { useDeviceConnection } from './composables/useDeviceConnection'
 import { useLightingPreview } from './composables/useLightingPreview'
-import { HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS } from './protocol'
+import { getDeviceDefinition, hasDeviceDefinition } from './devices/deviceDefinitions'
+import { DEVICE_TYPES, HOTKEY_SELECT_VALUE, MEDIA_KEY_OPTIONS, MODIFIER_OPTIONS } from './protocol'
+
+const previewDeviceParam = new URLSearchParams(window.location.search).get('preview')
+const previewDeviceAliases = {
+  'one-shot': DEVICE_TYPES.oneShot,
+  magic: DEVICE_TYPES.magicButton,
+  'magic-button': DEVICE_TYPES.magicButton,
+  bebop: DEVICE_TYPES.bebop,
+  rrrraw: DEVICE_TYPES.rrrraw,
+}
+const previewDeviceType = previewDeviceAliases[previewDeviceParam]
+  ?? Number.parseInt(previewDeviceParam ?? '', 10)
+const isPreviewConnection = ref(hasDeviceDefinition(previewDeviceType))
 
 const {
   applyButtonEvent,
@@ -61,11 +74,41 @@ const {
   supportsTurboMode,
 })
 
+const connectingMethod = ref(null)
+
+async function handleConnect(method) {
+  connectingMethod.value = method
+
+  try {
+    if (method === 'bluetooth') {
+      await connectBluetooth()
+    } else {
+      await connect()
+    }
+  } finally {
+    if (!isConnected.value && connectingMethod.value === method) {
+      connectingMethod.value = null
+    }
+  }
+}
+
+if (isPreviewConnection.value) {
+  const previewDefinition = getDeviceDefinition(previewDeviceType)
+  applyConfig({
+    deviceType: previewDeviceType,
+    ...previewDefinition.defaults,
+  })
+  applyDeviceInfo(previewDefinition.defaultInfo)
+  productName.value = previewDefinition.name
+  isConnected.value = true
+  statusText.value = 'Подключено (preview)'
+}
+
 const appTitle = computed(() => {
   if (!isConnected.value) return 'Конфигуратор'
   if (deviceDefinition.value.configuratorTitle) return deviceDefinition.value.configuratorTitle
   const name = productName.value || deviceDefinition.value.name
-  return `Конфигуратор<br />${name}`
+  return `${name}`
 })
 
 const gestureOptions = MEDIA_KEY_OPTIONS.map((option) => ({
@@ -77,7 +120,7 @@ const isMacLike = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
 const modifierOptions = MODIFIER_OPTIONS
 
 const scheduleAutoSave = throttle(async () => {
-  if (!isConnected.value || isConnecting.value) {
+  if (isPreviewConnection.value || !isConnected.value || isConnecting.value) {
     return
   }
 
@@ -224,21 +267,27 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
 <template>
   <main class="shell" :class="{ 'connected': isConnected }" :style="colorPreviewStyle">
     <section class="hero">
-      <h1 v-html="appTitle" />
+      <h1 v-if="isConnected" v-html="appTitle" />
+      <h1 v-else class="connection-title">Настройщик</h1>
       <div v-if="!isConnected" class="connection-actions">
-        <button class="button primary" :disabled="isBusy || isConnecting" @click="connectBluetooth">
-          {{ isConnecting ? 'Подключение...' : 'Подключить по Bluetooth' }}
+        <button
+          class="button connection-button"
+          :disabled="connectingMethod === 'bluetooth'"
+          @click="handleConnect('bluetooth')"
+        >
+          {{ connectingMethod === 'bluetooth' ? 'Подключение...' : 'Подключить по Bluetooth' }}
         </button>
-        <button class="button secondary" :disabled="isBusy || isConnecting" @click="connect">
-          Подключить по USB
+        <button
+          class="button connection-button"
+          :disabled="connectingMethod === 'usb'"
+          @click="handleConnect('usb')"
+        >
+          {{ connectingMethod === 'usb' ? 'Подключение...' : 'Подключить по USB' }}
         </button>
       </div>
-      <p v-if="!isConnected" class="connection-hint">
-        Тестовый rrrraw доступен для Bluetooth-настройки постоянно.
-      </p>
     </section>
 
-    <PanelSection :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
+    <PanelSection v-if="isConnected" :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
       <component
         :is="deviceDefinition.preview"
         :active-animation="currentPreviewAnimation"
@@ -301,11 +350,18 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
   min-height: 100vh;
   position: relative;
   min-width: 700px;
-  max-width: 1100px;
+  max-width: 1300px;
   width: 100%;
   margin: 0;
-  padding: 10vh 100px 64px 100px;
+  padding: 4vh 100px 64px 100px;
   text-align: center;
+}
+
+.shell:not(.connected) {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  padding: 64px 50px 300px;
 }
 
 .hero {
@@ -313,38 +369,36 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
   background: transparent;
   border-radius: 0;
   box-shadow: none;
-  margin-bottom: 4rem;
   text-align: center;
   padding: 0;
 }
 
 .connected .hero {
-  margin-bottom: 5.8rem;
+  margin-bottom: -7.5rem;
 }
 
 h1 {
-  font-size: 3.4rem;
+  font-size: 18rem;
   line-height: 1;
   font-weight: 900;
   margin-top: 1rem;
   color: var(--color-title);
+  display: flex;
+  white-space: nowrap;
+  justify-content: center;
 }
 
 .connection-actions {
   align-items: center;
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 2rem;
+  flex-direction: row;
+  gap: 16px;
+  justify-content: center;
 }
 
-.connection-hint {
-  color: var(--color-title);
-  font-size: 0.8rem;
-  line-height: 1.35;
-  margin: 1rem auto 0;
-  max-width: 25rem;
-  opacity: 0.5;
+.connection-title {
+  font-size: 9rem;
+  margin-bottom: 3rem;
 }
 
 h2 {
@@ -354,24 +408,20 @@ h2 {
   letter-spacing: -0.03em;
 }
 
-.primary {
-  padding: 14px 16px;
+.connection-button {
+  align-items: center;
+  display: inline-flex;
   font-size: 1rem;
-  line-height: 1;
-  text-align: center;
   font-weight: 500;
+  height: 64px;
+  justify-content: center;
+  padding: 14px 20px;
+  width: 280px;
 }
 
-.secondary {
-  background: transparent;
-  color: var(--color-title);
-  font-size: 0.9rem;
-  padding: 8px 12px;
-}
-
-.primary:disabled {
-  opacity: 0.45;
+.connection-button:disabled {
   cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .grid {
