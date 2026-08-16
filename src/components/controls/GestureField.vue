@@ -33,6 +33,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  disabled: {
+    type: Boolean,
+    default: false,
+  },
   showMouseOptions: {
     type: Boolean,
     default: false,
@@ -115,7 +119,7 @@ function handleClose() {
 </script>
 
 <template>
-  <div class="gesture-card">
+  <div class="gesture-card" :class="{ disabled }">
     <span class="gesture-trigger-label">
       {{ label }}
     </span>
@@ -125,6 +129,7 @@ function handleClose() {
           :ref="triggerRef"
           class="button gesture-trigger"
           :class="{ active: isOpen }"
+          :disabled="disabled"
           type="button"
           @click="toggle"
         >
@@ -173,6 +178,14 @@ function handleClose() {
 .gesture-card {
   position: relative;
   text-align: center;
+}
+
+.gesture-card.disabled {
+  opacity: 0.45;
+}
+
+.gesture-card.disabled .gesture-trigger {
+  cursor: not-allowed;
 }
 
 .gesture-trigger {

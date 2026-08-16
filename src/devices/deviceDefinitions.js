@@ -45,9 +45,11 @@ function prefixedButtonBindings(prefix) {
 }
 
 function pressBindings(prefix) {
+  const singleKey = `${prefix}Single`
+
   return [
     {
-      key: `${prefix}Single`,
+      key: singleKey,
       label: 'Нажатие',
       animation: { type: 'tap', count: 1 },
       capabilities: ['modifierHold'],
@@ -57,12 +59,18 @@ function pressBindings(prefix) {
       label: 'Долгое нажатие',
       animation: { type: 'press' },
       capabilities: ['modifierHold'],
+      disabled: ({ form }) => form[singleKey]?.type === ACTION_TYPES.hotkey
+        && form[singleKey]?.code === 0
+        && form[singleKey]?.modifiers !== 0,
     },
   ]
 }
 
 const gesture = (key, offset) => ({ key, offset, type: 'gesture' })
 const byte = (key, offset, defaultValue = 0) => ({ key, offset, type: 'u8', defaultValue })
+const hotkey = (code, modifiers = 0) => ({ type: ACTION_TYPES.hotkey, code, modifiers })
+const consumer = (code) => ({ type: ACTION_TYPES.consumer, code, modifiers: 0 })
+const noAction = () => hotkey(0)
 
 const oneShotBaseFields = [
   gesture('singleTap', 1),
@@ -253,6 +261,40 @@ export const DEVICE_DEFINITIONS = {
     configuratorTitle: 'Rrrraw',
     preview: RrrrawPreview,
     previewWidth: 562.5,
+    presets: [
+      {
+        id: 'rrrraw',
+        label: 'Rrrraw',
+        bindings: {
+          button1Single: hotkey(0x2a),
+          button1Long: hotkey(0x2a, 0x02),
+          button2Single: hotkey(0, 0x02),
+          button2Long: noAction(),
+          button3Single: hotkey(0x28),
+          button3Long: hotkey(0x28, 0x02),
+          encoderPressSingle: hotkey(0x1d, 0x08),
+          encoderPressLong: hotkey(0x22),
+          encoderCCW: hotkey(0x4f),
+          encoderCW: hotkey(0x50),
+        },
+      },
+      {
+        id: 'media',
+        label: 'Медиа',
+        bindings: {
+          button1Single: consumer(0x00b6),
+          button1Long: noAction(),
+          button2Single: consumer(0x00cd),
+          button2Long: noAction(),
+          button3Single: consumer(0x00b5),
+          button3Long: noAction(),
+          encoderPressSingle: consumer(0x00e2),
+          encoderPressLong: noAction(),
+          encoderCCW: consumer(0x00e9),
+          encoderCW: consumer(0x00ea),
+        },
+      },
+    ],
     controls: [
       {
         id: 'button1',

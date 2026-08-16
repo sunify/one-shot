@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import {
   DEVICE_CAPABILITIES,
   DEVICE_TYPES,
@@ -34,6 +34,24 @@ export function useConfiguratorState() {
     deviceType: DEVICE_TYPES.oneShot,
     ...deviceDefinition.value.defaults,
   })
+  let autoSaveSuppressionVersion = 0
+
+  function suppressAutoSaveForUpdate(update) {
+    const suppressionVersion = ++autoSaveSuppressionVersion
+    suppressAutoSave.value = true
+    try {
+      update()
+    } finally {
+      // A watcher is not scheduled when the device sends values that are already
+      // present in the form. Clear suppression after Vue has flushed this update
+      // so the next actual user edit is never mistaken for a device update.
+      void nextTick(() => {
+        if (suppressionVersion === autoSaveSuppressionVersion) {
+          suppressAutoSave.value = false
+        }
+      })
+    }
+  }
 
   const selectedColor = computed({
     get() {
@@ -69,6 +87,7 @@ export function useConfiguratorState() {
             controlId: control.id,
             label: resolve(binding.label),
             animation: resolve(binding.animation),
+            disabled: resolve(binding.disabled) ?? false,
           })),
       }))
   })
@@ -82,26 +101,27 @@ export function useConfiguratorState() {
   const isDevicePressed = computed(() => Object.values(controlPressStates.value).some(Boolean))
 
   function applyConfig(config) {
-    suppressAutoSave.value = true
-    deviceType.value = config.deviceType ?? DEVICE_TYPES.oneShot
-    form.deviceType = deviceType.value
+    suppressAutoSaveForUpdate(() => {
+      deviceType.value = config.deviceType ?? DEVICE_TYPES.oneShot
+      form.deviceType = deviceType.value
 
-    const bindingKeys = new Set(
-      deviceDefinition.value.controls.flatMap((control) => control.bindings.map((binding) => binding.key)),
-    )
-    for (const key of bindingKeys) {
-      if (config[key]) {
-        form[key] = cloneGesture(config[key])
-      } else {
-        delete form[key]
+      const bindingKeys = new Set(
+        deviceDefinition.value.controls.flatMap((control) => control.bindings.map((binding) => binding.key)),
+      )
+      for (const key of bindingKeys) {
+        if (config[key]) {
+          form[key] = cloneGesture(config[key])
+        } else {
+          delete form[key]
+        }
       }
-    }
 
-    for (const field of deviceDefinition.value.configLayouts.flatMap((layout) => layout.fields)) {
-      if (field.type !== 'gesture' && config[field.key] != null) {
-        form[field.key] = config[field.key]
+      for (const field of deviceDefinition.value.configLayouts.flatMap((layout) => layout.fields)) {
+        if (field.type !== 'gesture' && config[field.key] != null) {
+          form[field.key] = config[field.key]
+        }
       }
-    }
+    })
   }
 
   function updateBinding(field, gesture) {
@@ -149,8 +169,9 @@ export function useConfiguratorState() {
   }
 
   function applyDeviceOptions(options) {
-    suppressAutoSave.value = true
-    form.turboMode = options.turboMode === true
+    suppressAutoSaveForUpdate(() => {
+      form.turboMode = options.turboMode === true
+    })
   }
 
   return {

@@ -186,6 +186,37 @@ onMounted(() => {
 })
 
 const connectingMethod = ref(null)
+const CUSTOM_PRESETS_STORAGE_KEY = 'one-shot:custom-presets:v1'
+const SAVE_PRESET_VALUE = '__save_preset__'
+
+function loadCustomPresets() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(CUSTOM_PRESETS_STORAGE_KEY) ?? '[]')
+    if (!Array.isArray(stored)) return []
+    return stored.filter((preset) => (
+      typeof preset?.id === 'string'
+      && typeof preset?.label === 'string'
+      && Number.isInteger(preset?.deviceType)
+      && preset?.bindings
+      && typeof preset.bindings === 'object'
+    ))
+  } catch {
+    return []
+  }
+}
+
+const customPresets = ref(loadCustomPresets())
+const deviceCustomPresets = computed(() => customPresets.value.filter(
+  (preset) => preset.deviceType === deviceType.value,
+))
+const availablePresets = computed(() => [
+  ...(deviceDefinition.value.presets ?? []),
+  ...deviceCustomPresets.value,
+])
+
+function persistCustomPresets() {
+  window.localStorage.setItem(CUSTOM_PRESETS_STORAGE_KEY, JSON.stringify(customPresets.value))
+}
 
 async function handleConnect(method) {
   connectingMethod.value = method
@@ -251,6 +282,75 @@ function handleInvalidHotkeyChar() {
   statusText.value = 'Пока поддерживаются латинские буквы, цифры и основные знаки'
 }
 
+function applyPreset(presetId, selectElement) {
+  const preset = availablePresets.value.find((candidate) => candidate.id === presetId)
+  if (!preset) return
+
+  for (const [key, gesture] of Object.entries(preset.bindings)) {
+    updateBinding(key, { ...gesture })
+  }
+  handleGestureFieldClose()
+  statusText.value = `Пресет «${preset.label}» применён`
+  selectElement.value = ''
+}
+
+function currentGestureBindings() {
+  const keys = new Set(
+    deviceDefinition.value.configLayouts
+      .flatMap((layout) => layout.fields)
+      .filter((field) => field.type === 'gesture')
+      .map((field) => field.key),
+  )
+  return Object.fromEntries(
+    [...keys]
+      .filter((key) => form[key] != null)
+      .map((key) => [key, { ...form[key] }]),
+  )
+}
+
+function saveCustomPreset(selectElement) {
+  const label = window.prompt('Название пресета')?.trim()
+  if (!label) {
+    selectElement.value = ''
+    return
+  }
+
+  const existing = customPresets.value.find(
+    (preset) => preset.deviceType === deviceType.value && preset.label === label,
+  )
+  const preset = {
+    id: existing?.id ?? `custom:${deviceType.value}:${Date.now()}`,
+    label,
+    deviceType: deviceType.value,
+    bindings: currentGestureBindings(),
+  }
+
+  if (existing) {
+    customPresets.value = customPresets.value.map(
+      (candidate) => candidate.id === existing.id ? preset : candidate,
+    )
+  } else {
+    customPresets.value = [...customPresets.value, preset]
+  }
+
+  try {
+    persistCustomPresets()
+    statusText.value = `Пресет «${label}» сохранён`
+  } catch (error) {
+    statusText.value = error?.message ?? 'Не удалось сохранить пресет'
+  }
+  selectElement.value = ''
+}
+
+function handlePresetSelect(event) {
+  const selectElement = event.target
+  if (selectElement.value === SAVE_PRESET_VALUE) {
+    saveCustomPreset(selectElement)
+    return
+  }
+  applyPreset(selectElement.value, selectElement)
+}
+
 onBeforeUnmount(() => {
   scheduleAutoSave.cancel()
   clearInterval(animationInterval)
@@ -267,7 +367,6 @@ watch(
   form,
   () => {
     if (suppressAutoSave.value) {
-      suppressAutoSave.value = false
       return
     }
 
@@ -397,6 +496,28 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
       <circle :cx="connectorGeometry.startX" :cy="connectorGeometry.startY" r="2.5" />
       <circle :cx="connectorGeometry.targetX" :cy="connectorGeometry.targetY" r="2.5" />
     </svg>
+    <select
+      v-if="isConnected && (deviceDefinition.presets?.length || deviceCustomPresets.length)"
+      class="input select preset-select"
+      aria-label="Пресет"
+      value=""
+      @change="handlePresetSelect"
+    >
+      <option value="" disabled>Пресет</option>
+      <optgroup v-if="deviceDefinition.presets?.length" label="Встроенные">
+        <option v-for="preset in deviceDefinition.presets" :key="preset.id" :value="preset.id">
+          {{ preset.label }}
+        </option>
+      </optgroup>
+      <optgroup v-if="deviceCustomPresets.length" label="Мои пресеты">
+        <option v-for="preset in deviceCustomPresets" :key="preset.id" :value="preset.id">
+          {{ preset.label }}
+        </option>
+      </optgroup>
+      <optgroup label="Действия">
+        <option :value="SAVE_PRESET_VALUE">Сохранить текущий…</option>
+      </optgroup>
+    </select>
     <section class="hero">
       <h1 v-if="isConnected" v-html="appTitle" />
       <h1 v-else class="connection-title">Настройщик</h1>
@@ -418,7 +539,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
       </div>
     </section>
 
-    <PanelSection v-if="isConnected" :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
+    <PanelSection v-if="isConnected" :panel-class="`preview-panel color-panel ${supportsLighting ? '' : 'no-lighting'}`">
       <component
         ref="previewComponent"
         :is="deviceDefinition.preview"
@@ -434,6 +555,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
       />
       <ColorControl
         v-if="isConnected && supportsLighting"
+        class="preview-settings"
         v-model="selectedColor"
         :animation-mode="form.animationMode"
         :sleep-timeout="form.sleepTimeout"
@@ -442,7 +564,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
       />
     </PanelSection>
 
-    <PanelSection v-if="isConnected">
+    <PanelSection v-if="isConnected" panel-class="bindings-panel">
       <TurboModeSwitch
         v-if="supportsTurboMode"
         v-model="form.turboMode"
@@ -461,6 +583,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
               :label="binding.label"
               :modifier-options="modifierOptions"
               :allow-modifier-only="binding.capabilities?.includes('modifierHold')"
+              :disabled="binding.disabled"
               :show-mouse-options="binding.capabilities?.includes('mouse')"
               @open="handleGestureFieldOpen(binding)"
               @close="handleGestureFieldClose"
@@ -495,6 +618,15 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
   display: grid;
   justify-items: center;
   padding: 64px 50px 300px;
+}
+
+.preset-select {
+  position: absolute;
+  right: 100px;
+  top: 20px;
+  width: auto;
+  min-width: 150px;
+  z-index: 7;
 }
 
 .control-connector {
@@ -614,5 +746,32 @@ h2 {
   padding-top: 40px;
   position: relative;
   z-index: 6;
+}
+
+@media print {
+  .shell {
+    min-height: 0;
+    min-width: 0;
+    max-width: none;
+    padding-bottom: 0;
+  }
+
+  .control-connector,
+  .connection-actions,
+  .bindings-panel,
+  .preset-select,
+  .preview-settings {
+    display: none !important;
+  }
+
+  .preview-panel {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  .footer {
+    bottom: 64px;
+    position: fixed;
+  }
 }
 </style>
