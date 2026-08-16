@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, watch, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, watch, ref } from 'vue'
 import throttle from 'lodash-es/throttle'
 import ColorControl from './components/controls/ColorControl.vue'
 import GestureField from './components/controls/GestureField.vue'
@@ -24,7 +24,7 @@ const previewDeviceType = previewDeviceAliases[previewDeviceParam]
 const isPreviewConnection = ref(hasDeviceDefinition(previewDeviceType))
 
 const {
-  applyButtonEvent,
+  applyButtonEvent: applyConfiguratorButtonEvent,
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
@@ -47,8 +47,109 @@ const {
 
 const { colorPreviewStyle, isRainbow } = useLightingPreview(form, caseColors, supportsLighting)
 const physicalPreviewAnimation = ref(null)
+const selectedControlId = ref(null)
+const shellElement = ref(null)
+const previewComponent = ref(null)
+const gestureEditor = ref(null)
+const connectorGeometry = ref(null)
 let physicalEncoderAnimationTimeout
 let physicalEncoderEventSequence = 0
+let connectorAnimationFrame = null
+let connectorResizeObserver = null
+
+const selectedControl = computed(() => (
+  controls.value.find((control) => control.id === selectedControlId.value)
+  ?? controls.value[0]
+  ?? null
+))
+
+function selectControl(controlId) {
+  const control = controls.value.find((candidate) => candidate.id === controlId)
+  if (!control) return
+
+  selectedControlId.value = control.id
+}
+
+function selectPreviewControl(previewId) {
+  const control = controls.value.find(
+    (candidate) => (candidate.previewId ?? candidate.id) === previewId,
+  )
+  selectControl(control?.id ?? previewId)
+}
+
+function handlePhysicalButtonEvent(protocolId, isPressed) {
+  applyConfiguratorButtonEvent(protocolId, isPressed)
+  if (!isPressed) return
+
+  const control = controls.value.find(
+    (candidate, index) => (candidate.protocolId ?? index) === protocolId,
+  )
+  selectControl(control?.id)
+}
+
+watch(
+  controls,
+  (availableControls) => {
+    const control = availableControls.find((candidate) => candidate.id === selectedControlId.value)
+      ?? availableControls[0]
+    selectedControlId.value = control?.id ?? null
+  },
+  { immediate: true },
+)
+
+function getComponentElement(component) {
+  return component?.$el ?? component
+}
+
+function updateConnectorGeometry() {
+  connectorAnimationFrame = null
+
+  const shell = shellElement.value
+  const preview = getComponentElement(previewComponent.value)
+  const editor = gestureEditor.value
+  const previewControlId = selectedControl.value?.previewId ?? selectedControl.value?.id
+  const controlAnchor = preview && [...preview.querySelectorAll('[data-control-anchor]')]
+    .find((element) => element.dataset.controlAnchor === previewControlId)
+  if (!isConnected.value || controls.value.length < 2 || !controlAnchor || !shell || !editor) {
+    connectorGeometry.value = null
+    return
+  }
+
+  const shellRect = shell.getBoundingClientRect()
+  const anchorRect = controlAnchor.getBoundingClientRect()
+  const editorRect = editor.getBoundingClientRect()
+  const startX = anchorRect.left - shellRect.left + anchorRect.width / 2
+  const startY = anchorRect.top - shellRect.top + anchorRect.height / 2 + 10
+  const targetX = editorRect.left - shellRect.left + editorRect.width / 2
+  const targetY = editorRect.top - shellRect.top + 24
+  const elbowY = targetY - 50
+
+  connectorGeometry.value = {
+    height: shell.scrollHeight,
+    path: `M ${startX} ${startY} L ${startX} ${elbowY} L ${targetX} ${targetY}`,
+    startX,
+    startY,
+    targetX,
+    targetY,
+    width: shell.clientWidth,
+  }
+}
+
+async function scheduleConnectorUpdate() {
+  await nextTick()
+  if (connectorAnimationFrame != null) {
+    window.cancelAnimationFrame(connectorAnimationFrame)
+  }
+  connectorAnimationFrame = window.requestAnimationFrame(updateConnectorGeometry)
+}
+
+function observeConnectorElements() {
+  connectorResizeObserver?.disconnect()
+  connectorResizeObserver = new ResizeObserver(scheduleConnectorUpdate)
+  const preview = getComponentElement(previewComponent.value)
+  if (preview) connectorResizeObserver.observe(preview)
+  if (gestureEditor.value) connectorResizeObserver.observe(gestureEditor.value)
+}
 
 const {
   connect,
@@ -62,7 +163,7 @@ const {
   saveConfig,
   statusText,
 } = useDeviceConnection({
-  applyButtonEvent,
+  applyButtonEvent: handlePhysicalButtonEvent,
   applyConfig,
   applyDeviceInfo,
   applyDeviceOptions,
@@ -72,6 +173,16 @@ const {
   deviceType,
   form,
   supportsTurboMode,
+})
+
+watch([selectedControl, isConnected, supportsTurboMode], async () => {
+  await nextTick()
+  observeConnectorElements()
+  scheduleConnectorUpdate()
+}, { immediate: true })
+
+onMounted(() => {
+  window.addEventListener('resize', scheduleConnectorUpdate)
 })
 
 const connectingMethod = ref(null)
@@ -144,6 +255,11 @@ onBeforeUnmount(() => {
   scheduleAutoSave.cancel()
   clearInterval(animationInterval)
   clearTimeout(physicalEncoderAnimationTimeout)
+  connectorResizeObserver?.disconnect()
+  window.removeEventListener('resize', scheduleConnectorUpdate)
+  if (connectorAnimationFrame != null) {
+    window.cancelAnimationFrame(connectorAnimationFrame)
+  }
   disconnect()
 })
 
@@ -178,6 +294,7 @@ const currentPreviewAnimation = computed(() => physicalPreviewAnimation.value ??
 ))
 
 function handlePhysicalEncoderEvent(controlId, direction) {
+  selectControl(controlId)
   physicalEncoderEventSequence += 1
   physicalPreviewAnimation.value = {
     type: 'rotate-step',
@@ -202,6 +319,7 @@ function handleGestureFieldClose() {
 
 let previewPressTimeout
 function handlePreviewPress(previewId = 'main') {
+  selectPreviewControl(previewId)
   if (previewPressTimeout) {
     clearTimeout(previewPressTimeout)
   }
@@ -213,6 +331,7 @@ function handlePreviewPress(previewId = 'main') {
 }
 
 function handlePreviewPressStart(previewId) {
+  selectPreviewControl(previewId)
   setPreviewSurfacePressed(previewId, true)
 }
 
@@ -265,7 +384,19 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
 </script>
 
 <template>
-  <main class="shell" :class="{ 'connected': isConnected }" :style="colorPreviewStyle">
+  <main ref="shellElement" class="shell" :class="{ 'connected': isConnected }" :style="colorPreviewStyle">
+    <svg
+      v-if="connectorGeometry"
+      class="control-connector"
+      :height="connectorGeometry.height"
+      :viewBox="`0 0 ${connectorGeometry.width} ${connectorGeometry.height}`"
+      aria-hidden="true"
+      preserveAspectRatio="none"
+    >
+      <path :d="connectorGeometry.path" />
+      <circle :cx="connectorGeometry.startX" :cy="connectorGeometry.startY" r="2.5" />
+      <circle :cx="connectorGeometry.targetX" :cy="connectorGeometry.targetY" r="2.5" />
+    </svg>
     <section class="hero">
       <h1 v-if="isConnected" v-html="appTitle" />
       <h1 v-else class="connection-title">Настройщик</h1>
@@ -289,6 +420,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
 
     <PanelSection v-if="isConnected" :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
       <component
+        ref="previewComponent"
         :is="deviceDefinition.preview"
         v-bind="deviceDefinition.previewProps"
         :active-animation="currentPreviewAnimation"
@@ -316,11 +448,11 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
         v-model="form.turboMode"
       />
       <div class="grid">
-        <section v-for="control in controls" :key="control.id" class="control-group">
-          <h2 v-if="controls.length > 1" class="control-label">{{ control.label }}</h2>
+        <section v-if="selectedControl" ref="gestureEditor" class="control-group">
+          <h2 v-if="controls.length > 1" class="control-label">{{ selectedControl.label }}</h2>
           <div class="control-bindings">
             <GestureField
-              v-for="binding in control.bindings"
+              v-for="binding in selectedControl.bindings"
               :key="binding.key"
               :gesture="form[binding.key]"
               :gesture-options="gestureOptions"
@@ -354,7 +486,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
   max-width: 1300px;
   width: 100%;
   margin: 0;
-  padding: 4vh 100px 64px 100px;
+  padding: 4vh 100px 20px 100px;
   text-align: center;
 }
 
@@ -363,6 +495,29 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
   display: grid;
   justify-items: center;
   padding: 64px 50px 300px;
+}
+
+.control-connector {
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 100%;
+  z-index: 5;
+}
+
+.control-connector path {
+  fill: none;
+  stroke: #000;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 2.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.control-connector circle {
+  fill: #000;
 }
 
 .hero {
@@ -456,5 +611,8 @@ h2 {
 
 .control-group {
   max-width: 500px;
+  padding-top: 40px;
+  position: relative;
+  z-index: 6;
 }
 </style>

@@ -173,6 +173,11 @@ onBeforeUnmount(() => {
         @pointerup.prevent="handlePointerEnd($event, 'encoder')"
         @pointercancel="handlePointerEnd($event, 'encoder')"
       />
+
+      <span class="control-anchor anchor-button-1" data-control-anchor="button1" />
+      <span class="control-anchor anchor-button-2" data-control-anchor="button2" />
+      <span class="control-anchor anchor-button-3" data-control-anchor="button3" />
+      <span class="control-anchor anchor-encoder" data-control-anchor="encoder" />
     </div>
   </div>
 </template>
@@ -345,6 +350,33 @@ onBeforeUnmount(() => {
   width: 460px;
   height: 380px;
   border-radius: 50%;
+}
+
+.control-anchor {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.anchor-button-1 {
+  left: 179.825px;
+  top: 359px;
+}
+
+.anchor-button-2 {
+  left: 310px;
+  top: 435px;
+}
+
+.anchor-button-3 {
+  left: 439.663px;
+  top: 509px;
+}
+
+.anchor-encoder {
+  left: 574.728px;
+  top: 223.6px;
 }
 
 @media (prefers-reduced-motion: reduce) {

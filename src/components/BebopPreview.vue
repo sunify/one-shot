@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import baseSvg from '../assets/bebop-base.svg'
 import leftSvg from '../assets/bebop-left.svg'
 import rightSvg from '../assets/bebop-right.svg'
@@ -19,16 +19,40 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['press'])
+const emit = defineEmits(['press-start', 'press-end'])
+const activePointers = new Map()
 
 const leftPressed = computed(() => (
   props.pressedControls.left || (props.isPressed && !props.pressedControls.right)
 ))
 const rightPressed = computed(() => props.pressedControls.right)
 
-function handlePress(controlId) {
-  emit('press', controlId)
+function handlePointerDown(event, controlId) {
+  activePointers.set(event.pointerId, controlId)
+  emit('press-start', controlId)
 }
+
+function handlePointerEnd(event) {
+  const controlId = activePointers.get(event.pointerId)
+  if (!controlId) return
+
+  activePointers.delete(event.pointerId)
+  emit('press-end', controlId)
+}
+
+onMounted(() => {
+  document.addEventListener('pointerup', handlePointerEnd)
+  document.addEventListener('pointercancel', handlePointerEnd)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerup', handlePointerEnd)
+  document.removeEventListener('pointercancel', handlePointerEnd)
+  for (const controlId of activePointers.values()) {
+    emit('press-end', controlId)
+  }
+  activePointers.clear()
+})
 </script>
 
 <template>
@@ -52,14 +76,16 @@ function handlePress(controlId) {
       class="bebop-hit-area bebop-hit-left"
       type="button"
       aria-label="Нажать левую кнопку"
-      @pointerdown.prevent="handlePress('left')"
+      @pointerdown.prevent="handlePointerDown($event, 'left')"
     />
     <button
       class="bebop-hit-area bebop-hit-right"
       type="button"
       aria-label="Нажать правую кнопку"
-      @pointerdown.prevent="handlePress('right')"
+      @pointerdown.prevent="handlePointerDown($event, 'right')"
     />
+    <span class="control-anchor anchor-left" data-control-anchor="left" />
+    <span class="control-anchor anchor-right" data-control-anchor="right" />
   </div>
 </template>
 
@@ -112,5 +138,22 @@ function handlePress(controlId) {
   top: 34%;
   width: 30%;
   height: 25%;
+}
+
+.control-anchor {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.anchor-left {
+  left: 35%;
+  top: 27%;
+}
+
+.anchor-right {
+  left: 60%;
+  top: 47%;
 }
 </style>
