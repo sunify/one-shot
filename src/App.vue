@@ -290,6 +290,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
     <PanelSection v-if="isConnected" :panel-class="`color-panel ${supportsLighting ? '' : 'no-lighting'}`">
       <component
         :is="deviceDefinition.preview"
+        v-bind="deviceDefinition.previewProps"
         :active-animation="currentPreviewAnimation"
         :is-pressed="isDevicePressed"
         :is-rainbow="isRainbow"

@@ -146,6 +146,9 @@ export const DEVICE_DEFINITIONS = {
     name: 'Magic',
     preview: OneShotPreview,
     previewWidth: 375,
+    previewProps: {
+      capVariant: 'magic',
+    },
     controls: [
       {
         id: 'main',

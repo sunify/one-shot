@@ -1,9 +1,15 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import baseAsset from '../assets/one-shot-base.svg'
-import buttonAsset from '../assets/one-shot-button.svg'
+import magicCapAsset from '../assets/magic-cap.svg'
+import magicLogoAsset from '../assets/magic-logo.svg'
+import oneShotButtonAsset from '../assets/one-shot-button.svg'
 
 const props = defineProps({
+  capVariant: {
+    type: String,
+    default: 'one-shot',
+  },
   activeAnimation: {
     type: Object,
     default: null,
@@ -35,6 +41,8 @@ let mouseUpTimeout = null
 const visualButtonOffset = computed(() => (
   props.pressedControls.main || props.isPressed ? 28 : buttonOffset.value
 ))
+const isMagicCap = computed(() => props.capVariant === 'magic')
+const capBaseY = computed(() => (isMagicCap.value ? 14 : 26))
 
 function handleMouseDown() {
   buttonOffset.value = 28
@@ -90,6 +98,9 @@ onBeforeUnmount(() => {
       <clipPath id="one-shot-button-clip">
         <polygon points="245,0 266,0 283,4 300,12 473,112 498,127 507,137 511,150 511,215 508,226 500,236 492,242 315,344 293,356 276,361 270,362 241,362 218,356 203,348 18,241 8,233 1,221 0,215 0,150 4,137 12,128 19,123 211,12 228,4" />
       </clipPath>
+      <clipPath id="magic-cap-clip">
+        <polygon points="300,1 321,1 342,5 361,13 593,147 605,157 617,178 620,189 620,287 616,298 605,310 598,315 373,445 356,454 340,459 321,462 300,462 281,459 265,454 248,445 23,315 7,301 2,291 1,287 1,189 4,178 13,161 28,147 246,21 270,8 287,3" />
+      </clipPath>
       <clipPath id="one-shot-foreground-clip">
         <path d="M0 190 167 273 330 369q58 40 116 0l164-96 167-83v483H0Z" />
       </clipPath>
@@ -115,16 +126,28 @@ onBeforeUnmount(() => {
 
     <g
       style="user-select:none;cursor:pointer"
-      :transform="`translate(132, ${26 + visualButtonOffset})`"
+      :transform="`translate(132, ${capBaseY + visualButtonOffset})`"
       @mousedown.prevent="handleMouseDown"
     >
-      <rect
-        width="512"
-        height="363"
-        clip-path="url(#one-shot-button-clip)"
-        style="fill:var(--button-color, #fff)"
-      />
-      <image :href="buttonAsset" width="512" height="363" />
+      <g v-if="isMagicCap" transform="scale(0.8231511254)">
+        <rect
+          width="622"
+          height="464"
+          clip-path="url(#magic-cap-clip)"
+          style="fill:var(--button-color, #fff)"
+        />
+        <image :href="magicLogoAsset" width="622" height="464" />
+        <image :href="magicCapAsset" width="622" height="464" />
+      </g>
+      <template v-else>
+        <rect
+          width="512"
+          height="363"
+          clip-path="url(#one-shot-button-clip)"
+          style="fill:var(--button-color, #fff)"
+        />
+        <image :href="oneShotButtonAsset" width="512" height="363" />
+      </template>
     </g>
 
     <g
