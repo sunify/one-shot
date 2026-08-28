@@ -22,7 +22,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['press-start', 'press-end'])
+const emit = defineEmits(['press-start', 'press-end', 'rotate-step'])
 
 function handlePointerDown(event, controlId) {
   event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -36,6 +36,11 @@ function handlePointerEnd(event, controlId) {
   emit('press-end', controlId)
 }
 
+function handleEncoderWheel(event) {
+  if (event.deltaY === 0) return
+  emit('rotate-step', 'encoder', event.deltaY > 0 ? 'cw' : 'ccw')
+}
+
 const rotationDirection = computed(() => (
   props.activeAnimation?.type === 'rotate' ? props.activeAnimation.direction : null
 ))
@@ -45,8 +50,9 @@ const encoderStepSequence = computed(() => (
 
 const dimpleAngle = ref(0)
 const encoderPhaseAngle = ref(0)
-const dimpleStyle = computed(() => ({
-  transform: `translate(${145 * (Math.cos(dimpleAngle.value) - 1)}px, ${88 * Math.sin(dimpleAngle.value)}px)`,
+const dimplePosition = computed(() => ({
+  x: 307 + 145 * Math.cos(dimpleAngle.value),
+  y: 185 + 88 * Math.sin(dimpleAngle.value),
 }))
 const encoderPhaseOpacity = computed(() => (
   Math.floor(encoderPhaseAngle.value / (Math.PI / 5)) % 2 === 0 ? 0 : 1
@@ -127,7 +133,6 @@ onBeforeUnmount(() => {
           rotationDirection,
           {
             rotating: rotationDirection,
-            stepping: activeAnimation?.type === 'rotate-step',
             pressed: pressedControls.encoder,
           },
         ]"
@@ -148,7 +153,13 @@ onBeforeUnmount(() => {
         >
         <svg class="encoder-dimple" viewBox="78 35 460 380" preserveAspectRatio="none">
           <ellipse class="dimple-eraser" cx="452" cy="185" rx="49" ry="31" />
-          <ellipse class="dimple" :style="dimpleStyle" cx="452" cy="185" rx="45" ry="27" />
+          <ellipse
+            class="dimple"
+            :cx="dimplePosition.x"
+            :cy="dimplePosition.y"
+            rx="45"
+            ry="27"
+          />
         </svg>
       </div>
 
@@ -172,6 +183,7 @@ onBeforeUnmount(() => {
         @pointerdown.prevent="handlePointerDown($event, 'encoder')"
         @pointerup.prevent="handlePointerEnd($event, 'encoder')"
         @pointercancel="handlePointerEnd($event, 'encoder')"
+        @wheel.prevent="handleEncoderWheel"
       />
 
       <span class="control-anchor anchor-button-1" data-control-anchor="button1" />
@@ -263,17 +275,17 @@ onBeforeUnmount(() => {
 }
 
 .key-1 {
-  top: 293px;
+  top: 299px;
   left: 74.825px;
 }
 
 .key-2 {
-  top: 369px;
+  top: 375px;
   left: 205px;
 }
 
 .key-3 {
-  top: 443px;
+  top: 449px;
   left: 334.663px;
 }
 
@@ -305,12 +317,6 @@ onBeforeUnmount(() => {
   fill: #ffbd00;
   stroke: #000;
   stroke-width: 2.5;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.installed-encoder.stepping .dimple {
-  transition: transform 90ms linear;
 }
 
 .hit-area {
@@ -330,17 +336,17 @@ onBeforeUnmount(() => {
 }
 
 .button-hit.button-1 {
-  top: 293px;
+  top: 299px;
   left: 74.825px;
 }
 
 .button-hit.button-2 {
-  top: 369px;
+  top: 375px;
   left: 205px;
 }
 
 .button-hit.button-3 {
-  top: 443px;
+  top: 449px;
   left: 334.663px;
 }
 
@@ -361,17 +367,17 @@ onBeforeUnmount(() => {
 
 .anchor-button-1 {
   left: 179.825px;
-  top: 359px;
+  top: 372px;
 }
 
 .anchor-button-2 {
   left: 310px;
-  top: 435px;
+  top: 441px;
 }
 
 .anchor-button-3 {
   left: 439.663px;
-  top: 509px;
+  top: 515px;
 }
 
 .anchor-encoder {

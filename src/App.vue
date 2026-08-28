@@ -552,6 +552,7 @@ watch(currentPreviewBinding, (binding, previousBinding) => {
         @press="handlePreviewPress"
         @press-start="handlePreviewPressStart"
         @press-end="handlePreviewPressEnd"
+        @rotate-step="handlePhysicalEncoderEvent"
       />
       <ColorControl
         v-if="isConnected && supportsLighting"

@@ -137,6 +137,7 @@ case "$TARGET" in
     TARGET_BUILD_PATH="${ARDUINO_BUILD_PATH_RRRRAW:-.arduino/build-rrrraw}"
     TARGET_USB_PRODUCT="${USB_PRODUCT_RRRRAW:-rrrraw}"
     TARGET_USB_MANUFACTURER="${USB_MANUFACTURER_RRRRAW:-lunev}"
+    TARGET_VARIANT_PATH="$ROOT_DIR/variants/rrrraw"
     ;;
   magic-button-ch32x035)
     TARGET_FQBN="${ARDUINO_FQBN_MAGIC_BUTTON_CH32X035:-WCH:ch32v:CH32X035_EVT}"
@@ -255,6 +256,10 @@ compile_one_shot() {
 
 compile_magic_button() {
   EXTRA_ARGS="${1:-}"
+  set --
+  if [ -n "${TARGET_VARIANT_PATH:-}" ]; then
+    set -- "$@" --build-property "build.variant.path=${TARGET_VARIANT_PATH}"
+  fi
   arduino-cli compile \
     --config-file "$ROOT_DIR/arduino-cli.yaml" \
     -b "${TARGET_FQBN}" \
@@ -264,6 +269,7 @@ compile_magic_button() {
     --build-property "build.usb_manufacturer=\"${TARGET_USB_MANUFACTURER}\"" \
     --build-property "compiler.cpp.extra_flags=${EXTRA_FLAGS}" \
     --build-property "compiler.c.extra_flags=${EXTRA_FLAGS}" \
+    "$@" \
     ${EXTRA_ARGS} \
     "$ROOT_DIR/${TARGET_SKETCH_PATH}"
 }

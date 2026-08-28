@@ -34,10 +34,14 @@ const uint16_t BLE_IDLE_CONN_INTERVAL = 12;
 const uint16_t BLE_IDLE_CONN_SLAVE_LATENCY = 15;
 const uint16_t BLE_CONN_SUPERVISION_TIMEOUT = 400;
 const uint32_t BLE_IDLE_PARAMS_DELAY_MS = 2000;
+const uint8_t BLE_NOTIFY_CHUNK_SIZE = 20;
+const uint8_t BLE_NOTIFY_QUEUE_SIZE = 3;
 // Production mode: expose the configuration connection only after the
 // two outer buttons have been held for CONFIG_CHORD_HOLD_MS.
 const bool ALWAYS_ADVERTISE_CONFIG = false;
 const uint8_t BUTTON_COUNT = 4;
+
+static_assert(PINS_COUNT >= 6, "rrrraw needs six Arduino pin slots for GPIOTE wake inputs");
 
 // Defaults use exposed nice!nano-compatible GPIOs and avoid NFC, reset,
 // external-flash and the modified SuperMini power-control pin P0.13.
@@ -219,9 +223,14 @@ void ensureBleFastProfile() {
   if (bleSecuredAt != 0) bleSecuredAt = millis();
 }
 
+void updateBatteryLevel(bool forceNotify);
+
 void updateBlePowerProfile(uint32_t now) {
   if (bleIdleParamsRequested || bleSecuredAt == 0 ||
       now - bleSecuredAt < BLE_IDLE_PARAMS_DELAY_MS) return;
+  // Refresh after service discovery/CCCD restoration so the host does not keep
+  // a stale Battery Service value cached from an earlier connection.
+  updateBatteryLevel(true);
   for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
     BLEConnection *connection = Bluefruit.Connection(handle);
     if (!connection || !connection->connected() || !connection->secured()) continue;
@@ -269,6 +278,34 @@ void flushProtocolTransport(Stream &transport) {
 }
 
 void sendProtocolFrame(Stream &transport, uint8_t command, const uint8_t *payload, uint8_t length) {
+  if (&transport == &configBle) {
+    uint8_t frame[6 + sizeof(DeviceConfig)];
+    uint8_t crc = 0;
+    crc = crc8Update(crc, PROTOCOL_VERSION);
+    crc = crc8Update(crc, command);
+    crc = crc8Update(crc, length);
+    for (uint8_t index = 0; index < length; index++) crc = crc8Update(crc, payload[index]);
+
+    frame[0] = FRAME_MAGIC_1;
+    frame[1] = FRAME_MAGIC_2;
+    frame[2] = PROTOCOL_VERSION;
+    frame[3] = command;
+    frame[4] = length;
+    if (length > 0) memcpy(frame + 5, payload, length);
+    frame[5 + length] = crc;
+
+    const uint8_t frameLength = 6 + length;
+    for (uint8_t offset = 0; offset < frameLength; offset += BLE_NOTIFY_CHUNK_SIZE) {
+      const uint8_t remaining = frameLength - offset;
+      const uint8_t chunkLength = remaining < BLE_NOTIFY_CHUNK_SIZE
+          ? remaining
+          : BLE_NOTIFY_CHUNK_SIZE;
+      configBle.write(frame + offset, chunkLength);
+    }
+    configBle.flushTXD();
+    return;
+  }
+
   sendFrame(transport, command, payload, length);
   flushProtocolTransport(transport);
 }
@@ -528,7 +565,14 @@ void updateBatteryLevel(bool forceNotify = false) {
   const bool changed = measuredLevel != batteryLevel;
   batteryLevel = measuredLevel;
   batteryService.write(batteryLevel);
-  if (forceNotify || changed) batteryService.notify(batteryLevel);
+  if (!forceNotify && !changed) return;
+
+  for (uint16_t handle = 0; handle < BLE_MAX_CONNECTION; handle++) {
+    BLEConnection *connection = Bluefruit.Connection(handle);
+    if (connection && connection->connected()) {
+      batteryService.notify(handle, batteryLevel);
+    }
+  }
 }
 
 void sendButtonState(Stream &transport, uint8_t index, uint8_t state) {
@@ -766,9 +810,13 @@ void startAdvertising() {
 
 void setupBle() {
   Bluefruit.autoConnLed(false);
-  // The config response is 48 bytes including framing. A larger characteristic
-  // max length lets BLEUart split it into notifications even when ATT stays at 23.
-  Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+  // Keep the low-power MTU and event length. Three queued notifications carry
+  // the 48-byte config response as 20 + 20 + 8 bytes.
+  Bluefruit.configPrphConn(
+      BLE_GATT_ATT_MTU_DEFAULT,
+      BLE_GAP_EVENT_LENGTH_MIN,
+      BLE_NOTIFY_QUEUE_SIZE,
+      BLE_GATTC_WRITE_CMD_TX_QUEUE_SIZE_DEFAULT);
   Bluefruit.begin(2, 0);
   sd_power_mode_set(NRF_POWER_MODE_LOWPWR);
   sd_power_dcdc_mode_set(NRF_POWER_DCDC_DISABLE);
